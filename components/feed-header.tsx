@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -12,9 +12,6 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
@@ -36,12 +33,88 @@ import {
   Plus,
   FolderPlus,
   Clock,
+  LogOut,
+  Target,
 } from "lucide-react"
 import Link from "next/link"
+import { useAuth } from "@/contexts/AuthContext"
+import { useRouter } from "next/navigation"
+import { notificationService, userService, squadService } from "@/lib/api/services"
+import type { User, Squad } from "@/lib/api/types"
+import { getImageUrl } from "@/lib/utils"
 
-export function FeedHeader() {
+interface FeedHeaderProps {
+  searchQuery?: string
+  onSearchChange?: (value: string) => void
+}
+
+export function FeedHeader({ searchQuery: externalSearchQuery, onSearchChange: externalOnSearchChange }: FeedHeaderProps = {}) {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
-  const [notifications] = useState(3) // Mock notification count
+  const [unreadCount, setUnreadCount] = useState(0)
+  const [searchUsers, setSearchUsers] = useState<User[]>([])
+  const [searchSquads, setSearchSquads] = useState<Squad[]>([])
+  const [isSearching, setIsSearching] = useState(false)
+  const [internalSearchQuery, setInternalSearchQuery] = useState("")
+  const { user, logout } = useAuth()
+  const router = useRouter()
+
+  // Use external search query if provided, otherwise use internal state
+  const searchQuery = externalSearchQuery !== undefined ? externalSearchQuery : internalSearchQuery
+  const handleSearchChange = externalOnSearchChange || ((value: string) => setInternalSearchQuery(value))
+
+  useEffect(() => {
+    const fetchUnreadCount = async () => {
+      try {
+        const response = await notificationService.getUnreadCount()
+        setUnreadCount(response.count)
+      } catch (error) {
+        // Silently fail - user might not be authenticated
+        setUnreadCount(0)
+      }
+    }
+    fetchUnreadCount()
+    // Poll every 30 seconds
+    const interval = setInterval(fetchUnreadCount, 30000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // Search users and squads when search query changes
+  useEffect(() => {
+    const searchDebounced = async () => {
+      if (searchQuery && searchQuery.trim().length > 0) {
+        setIsSearching(true)
+        try {
+          const [users, squads] = await Promise.all([
+            userService.searchUsers(searchQuery, 5).catch(() => []),
+            squadService.searchSquads(searchQuery, 5).catch(() => []),
+          ])
+          setSearchUsers(users)
+          setSearchSquads(squads)
+        } catch (error) {
+          setSearchUsers([])
+          setSearchSquads([])
+        } finally {
+          setIsSearching(false)
+        }
+      } else {
+        setSearchUsers([])
+        setSearchSquads([])
+      }
+    }
+
+    const timeoutId = setTimeout(searchDebounced, 300)
+    return () => clearTimeout(timeoutId)
+  }, [searchQuery])
+
+  const handleLogout = () => {
+    logout()
+    router.push("/login")
+  }
+
+  const displayName = user?.name || `${user?.firstName || ""} ${user?.lastName || ""}`.trim() || user?.username || "User"
+  const displayUsername = user?.username ? `@${user.username}` : "@username"
+  const avatarSrc = getImageUrl(user?.avatar)
+  const initials = user?.firstName?.[0] || user?.username?.[0] || "U"
 
   return (
     <header className="sticky top-0 z-50 bg-card/80 backdrop-blur-sm border-b border-border">
@@ -59,7 +132,99 @@ export function FeedHeader() {
           <div className="hidden md:flex items-center flex-1 max-w-md mx-8">
             <div className="relative w-full">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input placeholder="Search causes, organizations, or people..." className="pl-10 bg-background/50" />
+              <Input 
+                placeholder="Search causes, organizations, people, or squads..." 
+                className="pl-10 bg-background/50"
+                value={searchQuery}
+                onChange={(e) => handleSearchChange(e.target.value)}
+              />
+              {searchQuery && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
+                  onClick={() => handleSearchChange("")}
+                >
+                  <X className="w-3 h-3" />
+                </Button>
+              )}
+              {/* Search Results Dropdown */}
+              {searchQuery && (searchUsers.length > 0 || searchSquads.length > 0) && (
+                <div className="absolute top-full left-0 right-0 mt-2 bg-card border border-border rounded-lg shadow-lg z-50 max-h-96 overflow-y-auto">
+                  <div className="p-2">
+                    {/* People Results */}
+                    {searchUsers.length > 0 && (
+                      <>
+                        <div className="text-xs font-semibold text-muted-foreground px-2 py-1 mb-1">People</div>
+                        {searchUsers.map((user) => (
+                          <Link
+                            key={user.id}
+                            href={`/profile/${user.username}`}
+                            className="flex items-center gap-3 p-2 rounded hover:bg-secondary transition-colors"
+                            onClick={() => handleSearchChange("")}
+                          >
+                            <Avatar className="w-10 h-10">
+                              <AvatarImage src={getImageUrl(user.avatar)} />
+                              <AvatarFallback>
+                                {user.name?.split(" ").map((n) => n[0]).join("") || user.username?.[0] || "U"}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-sm text-foreground truncate">
+                                  {user.name || user.username}
+                                </span>
+                                {user.verified && (
+                                  <Badge variant="secondary" className="text-xs px-1">✓</Badge>
+                                )}
+                              </div>
+                              <span className="text-xs text-muted-foreground">@{user.username}</span>
+                            </div>
+                          </Link>
+                        ))}
+                      </>
+                    )}
+                    
+                    {/* Squads Results */}
+                    {searchSquads.length > 0 && (
+                      <>
+                        {searchUsers.length > 0 && <div className="border-t border-border my-2" />}
+                        <div className="text-xs font-semibold text-muted-foreground px-2 py-1 mb-1">Squads</div>
+                        {searchSquads.map((squad) => (
+                          <Link
+                            key={squad.id}
+                            href={`/squads/${squad.id}/discussion`}
+                            className="flex items-center gap-3 p-2 rounded hover:bg-secondary transition-colors"
+                            onClick={() => handleSearchChange("")}
+                          >
+                            <Avatar className="w-10 h-10">
+                              <AvatarImage src={getImageUrl(squad.avatar)} />
+                              <AvatarFallback>{squad.name[0]}</AvatarFallback>
+                            </Avatar>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-sm text-foreground truncate">
+                                  {squad.name}
+                                </span>
+                              </div>
+                              <span className="text-xs text-muted-foreground">
+                                {squad.members} {squad.members === 1 ? "member" : "members"}
+                              </span>
+                            </div>
+                          </Link>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+              
+              {/* Loading indicator */}
+              {searchQuery && isSearching && (
+                <div className="absolute top-full left-0 right-0 mt-2 bg-card border border-border rounded-lg shadow-lg z-50 p-4">
+                  <p className="text-sm text-muted-foreground text-center">Searching...</p>
+                </div>
+              )}
             </div>
           </div>
 
@@ -79,9 +244,9 @@ export function FeedHeader() {
             <Button variant="ghost" size="sm" className="relative" asChild>
               <Link href="/notifications">
                 <Bell className="w-4 h-4" />
-                {notifications > 0 && (
+                {unreadCount > 0 && (
                   <Badge className="absolute -top-1 -right-1 w-5 h-5 p-0 flex items-center justify-center text-xs">
-                    {notifications}
+                    {unreadCount}
                   </Badge>
                 )}
               </Link>
@@ -99,8 +264,8 @@ export function FeedHeader() {
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="sm" className="p-1">
                   <Avatar className="w-8 h-8">
-                    <AvatarImage src="/placeholder.svg?height=32&width=32&text=You" />
-                    <AvatarFallback>You</AvatarFallback>
+                    <AvatarImage src={avatarSrc} />
+                    <AvatarFallback>{initials}</AvatarFallback>
                   </Avatar>
                 </Button>
               </DropdownMenuTrigger>
@@ -108,12 +273,12 @@ export function FeedHeader() {
                 {/* Profile Section */}
                 <div className="flex items-center gap-3 p-3 border-b border-border">
                   <Avatar className="w-10 h-10">
-                    <AvatarImage src="/placeholder.svg?height=40&width=40&text=You" />
-                    <AvatarFallback>You</AvatarFallback>
+                    <AvatarImage src={avatarSrc} />
+                    <AvatarFallback>{initials}</AvatarFallback>
                   </Avatar>
                   <div className="flex flex-col">
-                    <span className="font-medium text-sm">Your Name</span>
-                    <span className="text-xs text-muted-foreground">@username</span>
+                    <span className="font-medium text-sm">{displayName}</span>
+                    <span className="text-xs text-muted-foreground">{displayUsername}</span>
                   </div>
                 </div>
 
@@ -129,9 +294,9 @@ export function FeedHeader() {
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild>
-                    <Link href="/feed/following" className="flex items-center gap-2">
+                    <Link href="/squads" className="flex items-center gap-2">
                       <Users className="w-4 h-4" />
-                      Following
+                      Squads
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild>
@@ -146,97 +311,47 @@ export function FeedHeader() {
                       History
                     </Link>
                   </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/my-causes" className="flex items-center gap-2">
+                      <Target className="w-4 h-4" />
+                      My Causes
+                    </Link>
+                  </DropdownMenuItem>
                 </DropdownMenuGroup>
 
                 <DropdownMenuSeparator />
 
                 {/* Custom Feeds */}
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger className="flex items-center gap-2">
+                <DropdownMenuItem asChild>
+                  <Link href="/custom-feeds" className="flex items-center gap-2">
                     <Plus className="w-4 h-4" />
                     Custom Feeds
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent className="bg-background text-foreground">
-                    <DropdownMenuItem asChild>
-                      <Link href="/feeds/custom" className="flex items-center gap-2">
-                        <Plus className="w-4 h-4" />
-                        Custom Feed
-                      </Link>
-                    </DropdownMenuItem>
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
+                  </Link>
+                </DropdownMenuItem>
 
-                {/* Network */}
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger className="flex items-center gap-2">
+                {/* Squads */}
+                <DropdownMenuItem asChild>
+                  <Link href="/squads" className="flex items-center gap-2">
                     <Users className="w-4 h-4" />
-                    Network
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent className="bg-background text-foreground">
-                    <DropdownMenuItem asChild>
-                      <Link href="/squads/find" className="flex items-center gap-2">
-                        <Search className="w-4 h-4" />
-                        Find Squads
-                      </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                      <Link href="/squads/new" className="flex items-center gap-2">
-                        <Plus className="w-4 h-4" />
-                        New Squad
-                      </Link>
-                    </DropdownMenuItem>
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
+                    Squads
+                  </Link>
+                </DropdownMenuItem>
 
                 {/* Bookmarks */}
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger className="flex items-center gap-2">
+                <DropdownMenuItem asChild>
+                  <Link href="/bookmarks" className="flex items-center gap-2">
                     <Bookmark className="w-4 h-4" />
                     Bookmarks
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent className="bg-background text-foreground">
-                    <DropdownMenuItem asChild>
-                      <Link href="/bookmarks/quick-saves" className="flex items-center gap-2">
-                        <Bookmark className="w-4 h-4" />
-                        Quick saves
-                      </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                      <Link href="/bookmarks/read-later" className="flex items-center gap-2">
-                        <Clock className="w-4 h-4" />
-                        Read it later
-                      </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                      <Link href="/bookmarks/new-folder" className="flex items-center gap-2">
-                        <FolderPlus className="w-4 h-4" />
-                        New folder
-                      </Link>
-                    </DropdownMenuItem>
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
+                  </Link>
+                </DropdownMenuItem>
 
                 {/* Discover */}
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger className="flex items-center gap-2">
+                <DropdownMenuItem asChild>
+                  <Link href="/discover" className="flex items-center gap-2">
                     <Compass className="w-4 h-4" />
                     Discover
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent className="bg-background text-foreground">
-                    <DropdownMenuItem asChild>
-                      <Link href="/discover/tags" className="flex items-center gap-2">
-                        <Tag className="w-4 h-4" />
-                        Tags
-                      </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                      <Link href="/discover/leaderboard" className="flex items-center gap-2">
-                        <Trophy className="w-4 h-4" />
-                        Leaderboard
-                      </Link>
-                    </DropdownMenuItem>
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
+                  </Link>
+                </DropdownMenuItem>
 
                 <DropdownMenuSeparator />
 
@@ -246,10 +361,21 @@ export function FeedHeader() {
                     User Options
                   </DropdownMenuLabel>
                   <DropdownMenuItem asChild>
-                    <Link href="/profile" className="flex items-center gap-2">
+                    <Link href={user?.username ? `/profile/${user.username}` : "/profile"} className="flex items-center gap-2">
                       <User className="w-4 h-4" />
                       View Profile
                     </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/settings" className="flex items-center gap-2">
+                      <Settings className="w-4 h-4" />
+                      Settings
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={handleLogout} className="text-destructive focus:text-destructive">
+                    <LogOut className="w-4 h-4 mr-2" />
+                    Log Out
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
               </DropdownMenuContent>
@@ -276,7 +402,22 @@ export function FeedHeader() {
               {/* Mobile Search */}
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input placeholder="Search causes..." className="pl-10 bg-background/50" />
+                <Input 
+                  placeholder="Search causes, people, or squads..." 
+                  className="pl-10 bg-background/50"
+                  value={searchQuery}
+                  onChange={(e) => handleSearchChange(e.target.value)}
+                />
+                {searchQuery && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
+                    onClick={() => handleSearchChange("")}
+                  >
+                    <X className="w-3 h-3" />
+                  </Button>
+                )}
               </div>
 
               {/* Mobile Navigation */}
@@ -294,7 +435,7 @@ export function FeedHeader() {
                   <Link href="/notifications">
                     <Bell className="w-4 h-4 mr-2" />
                     Notifications
-                    {notifications > 0 && <Badge className="ml-auto">{notifications}</Badge>}
+                    {unreadCount > 0 && <Badge className="ml-auto">{unreadCount}</Badge>}
                   </Link>
                 </Button>
                 <Button variant="ghost" className="justify-start" asChild>
@@ -304,10 +445,10 @@ export function FeedHeader() {
                   </Link>
                 </Button>
                 <Button variant="ghost" className="justify-start" asChild>
-                  <Link href="/profile">
+                  <Link href={user?.username ? `/profile/${user.username}` : "/profile"}>
                     <Avatar className="w-4 h-4 mr-2">
-                      <AvatarImage src="/placeholder.svg?height=16&width=16&text=You" />
-                      <AvatarFallback>You</AvatarFallback>
+                      <AvatarImage src={avatarSrc} />
+                      <AvatarFallback>{initials}</AvatarFallback>
                     </Avatar>
                     Profile
                   </Link>
@@ -317,6 +458,10 @@ export function FeedHeader() {
                     <Settings className="w-4 h-4 mr-2" />
                     Settings
                   </Link>
+                </Button>
+                <Button variant="ghost" className="justify-start text-destructive" onClick={handleLogout}>
+                  <LogOut className="w-4 h-4 mr-2" />
+                  Log Out
                 </Button>
               </div>
             </div>

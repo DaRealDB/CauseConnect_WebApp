@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
@@ -8,8 +9,14 @@ import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { ArrowRight, ArrowLeft } from "lucide-react"
 import Link from "next/link"
+import { settingsService } from "@/lib/api/services"
+import { toast } from "sonner"
+import { useAuth } from "@/contexts/AuthContext"
 
 export default function OnboardingPreferences() {
+  const router = useRouter()
+  const { isAuthenticated } = useAuth()
+  const [isLoading, setIsLoading] = useState(false)
   const [feedType, setFeedType] = useState("balanced")
   const [notifications, setNotifications] = useState({
     newCauses: true,
@@ -17,6 +24,50 @@ export default function OnboardingPreferences() {
     messages: false,
     weekly: true,
   })
+
+  const handleContinue = async () => {
+    if (!isAuthenticated) {
+      router.push("/onboarding/preview")
+      return
+    }
+
+    try {
+      setIsLoading(true)
+      // Save notification preferences
+      await settingsService.updateSettings({
+        notifications: {
+          newCauses: notifications.newCauses,
+          comments: notifications.updates,
+          email: notifications.weekly,
+          sms: false,
+          donations: true,
+          awards: false,
+          mentions: notifications.messages,
+        },
+        privacy: {
+          activityVisibility: "friends",
+          twoFactor: false,
+        },
+        personalization: {
+          language: "en",
+          region: "us",
+          theme: "system",
+          // Don't include interestTags - already saved in previous step
+          // Including it with [] would overwrite the saved tags!
+          accessibility: {
+            highContrast: false,
+            screenReader: false,
+            textSize: "medium",
+          },
+        },
+      })
+      router.push("/onboarding/preview")
+    } catch (error: any) {
+      toast.error(error.message || "Failed to save preferences")
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-secondary/20 to-accent/10 flex items-center justify-center p-4">
@@ -137,11 +188,9 @@ export default function OnboardingPreferences() {
                   Back
                 </Link>
               </Button>
-              <Button asChild>
-                <Link href="/onboarding/preview">
-                  Preview Feed
-                  <ArrowRight className="w-4 h-4 ml-2" />
-                </Link>
+              <Button onClick={handleContinue} disabled={isLoading}>
+                {isLoading ? "Saving..." : "Continue"}
+                <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
             </div>
           </CardContent>

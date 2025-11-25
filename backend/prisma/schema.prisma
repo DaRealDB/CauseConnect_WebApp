@@ -1,0 +1,639 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== USER MODEL ====================
+model User {
+  id         String   @id @default(cuid())
+  email      String   @unique
+  username   String   @unique
+  firstName  String
+  lastName   String
+  password   String
+  avatar     String?
+  coverImage String?
+  bio        String?
+  location   String?
+  website    String?
+  verified   Boolean  @default(false)
+  stripeCustomerId String? // Stripe Customer ID for payment processing
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Relations
+  events             Event[]             @relation("EventOrganization")
+  posts              Post[]
+  comments           Comment[]
+  donations          Donation[]
+  notifications      Notification[]
+  refreshTokens      RefreshToken[]
+  settings           UserSettings?
+  awards             Award[]
+  supports           SupportHistory[]
+  passes             PassHistory[]
+  bookmarks          Bookmark[]
+  likes              Like[]
+  squadMembers       SquadMember[]
+  createdSquads      Squad[]             @relation("SquadCreator")
+  squadPosts         SquadPost[]         @relation("SquadPostAuthor")
+  squadComments      SquadComment[]      @relation("SquadCommentAuthor")
+  squadReactions     SquadReaction[]     @relation("SquadReactionAuthor")
+  following          Follow[]            @relation("UserFollowing")
+  followers          Follow[]            @relation("UserFollowers")
+  postParticipants   PostParticipant[]
+  customFeeds        CustomFeed[]
+  userTags           UserTag[]
+  blockedUsers       Block[]             @relation("UserBlocking")
+  blockedBy          Block[]             @relation("UserBlocked")
+  paymentMethods     UserPaymentMethod[]
+  recurringDonations RecurringDonation[]
+
+  @@map("users")
+}
+
+// ==================== REFRESH TOKEN ====================
+model RefreshToken {
+  id         String   @id @default(cuid())
+  token      String   @unique
+  userId     String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  userAgent  String? // Browser/device info
+  ipAddress  String? // IP address
+  deviceType String? // desktop, mobile, tablet
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
+}
+
+// ==================== EVENT MODEL ====================
+model Event {
+  id              String    @id @default(cuid())
+  title           String
+  description     String
+  fullDescription String?   @db.Text
+  image           String?
+  location        String?
+  targetDate      DateTime?
+  goalAmount      Float     @default(0)
+  raisedAmount    Float     @default(0)
+  urgency         String    @default("medium") // high, medium, low
+  status          String    @default("active") // active, completed, cancelled
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  organizationId     String
+  organization       User                @relation("EventOrganization", fields: [organizationId], references: [id], onDelete: Cascade)
+  tags               EventTag[]
+  comments           Comment[]
+  donations          Donation[]
+  supports           SupportHistory[]
+  passes             PassHistory[]
+  bookmarks          Bookmark[]
+  updates            EventUpdate[]
+  recurringDonations RecurringDonation[]
+
+  @@map("events")
+}
+
+// ==================== TAG MODEL (Canonical) ====================
+model Tag {
+  id            String   @id @default(cuid())
+  name          String // Display name (e.g., "Poverty & Hunger")
+  canonicalName String   @unique // Normalized: lowercase, trimmed, no duplicates (e.g., "poverty")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  userTags  UserTag[]
+  eventTags EventTag[]
+  postTags  PostTag[]
+
+  @@map("tags")
+}
+
+// ==================== USER TAG (Join Table) ====================
+model UserTag {
+  id        String   @id @default(cuid())
+  userId    String
+  tagId     String
+  createdAt DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, tagId])
+  @@map("user_tags")
+}
+
+// ==================== EVENT TAG ====================
+model EventTag {
+  id      String  @id @default(cuid())
+  name    String // Keep for backward compatibility and display
+  tagId   String? // Reference to canonical Tag (nullable for migration)
+  eventId String
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  tag   Tag?  @relation(fields: [tagId], references: [id], onDelete: SetNull)
+
+  @@unique([eventId, name])
+  @@map("event_tags")
+}
+
+// ==================== EVENT UPDATE ====================
+model EventUpdate {
+  id        String   @id @default(cuid())
+  title     String
+  content   String   @db.Text
+  image     String?
+  eventId   String
+  createdAt DateTime @default(now())
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@map("event_updates")
+}
+
+// ==================== POST MODEL ====================
+model Post {
+  id        String   @id @default(cuid())
+  content   String   @db.Text
+  image     String?
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tags         PostTag[]
+  comments     Comment[]
+  likes        Like[]
+  bookmarks    Bookmark[]
+  participants PostParticipant[]
+
+  @@map("posts")
+}
+
+// ==================== POST TAG ====================
+model PostTag {
+  id     String  @id @default(cuid())
+  name   String // Keep for backward compatibility and display
+  tagId  String? // Reference to canonical Tag (nullable for migration)
+  postId String
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  tag  Tag? @relation(fields: [tagId], references: [id], onDelete: SetNull)
+
+  @@unique([postId, name])
+  @@map("post_tags")
+}
+
+// ==================== POST PARTICIPANT MODEL ====================
+model PostParticipant {
+  id        String   @id @default(cuid())
+  userId    String
+  postId    String
+  createdAt DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, postId])
+  @@map("post_participants")
+}
+
+// ==================== COMMENT MODEL ====================
+model Comment {
+  id        String   @id @default(cuid())
+  content   String   @db.Text
+  userId    String
+  eventId   String?
+  postId    String?
+  parentId  String? // For nested replies
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event     Event?     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  post      Post?      @relation(fields: [postId], references: [id], onDelete: Cascade)
+  parent    Comment?   @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   Comment[]  @relation("CommentReplies")
+  likes     Like[]
+  awards    Award[]
+  bookmarks Bookmark[]
+
+  @@map("comments")
+}
+
+// ==================== DONATION MODEL ====================
+model Donation {
+  id            String   @id @default(cuid())
+  amount        Float
+  paymentMethod String // stripe, paypal
+  isRecurring   Boolean  @default(false)
+  isAnonymous   Boolean  @default(false)
+  message       String?  @db.Text
+  transactionId String?  @unique
+  status        String   @default("pending") // pending, completed, failed, refunded
+  userId        String
+  eventId       String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Payment provider IDs
+  stripePaymentIntentId String? // Stripe PaymentIntent ID
+  paypalOrderId         String? // PayPal Order ID
+  paymentMethodId       String? // Reference to saved payment method (if used)
+  recurringDonationId   String? // Reference to recurring donation if this is part of a subscription
+
+  // Relations
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event             Event              @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  paypalTransaction PayPalTransaction?
+  recurringDonation RecurringDonation? @relation(fields: [recurringDonationId], references: [id], onDelete: SetNull)
+
+  @@map("donations")
+}
+
+// ==================== USER PAYMENT METHOD ====================
+model UserPaymentMethod {
+  id        String  @id @default(cuid())
+  userId    String
+  provider  String // stripe, paypal
+  type      String // card, paypal_account
+  isDefault Boolean @default(false)
+
+  // Stripe fields
+  stripePaymentMethodId String? @unique // Stripe PaymentMethod ID
+  cardBrand             String? // visa, mastercard, amex, etc
+  cardLast4             String? // Last 4 digits
+  cardExpMonth          Int?
+  cardExpYear           Int?
+
+  // PayPal fields
+  paypalEmail String? // PayPal account email
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recurringDonations RecurringDonation[]
+
+  @@map("user_payment_methods")
+}
+
+// ==================== RECURRING DONATION ====================
+model RecurringDonation {
+  id              String  @id @default(cuid())
+  userId          String
+  eventId         String
+  amount          Float
+  currency        String  @default("USD")
+  interval        String  @default("month") // month, week, year
+  status          String  @default("active") // active, canceled, paused, expired
+  paymentMethodId String? // Reference to UserPaymentMethod
+
+  // Stripe subscription fields
+  stripeSubscriptionId String?   @unique // Stripe Subscription ID
+  stripeCustomerId     String? // Stripe Customer ID
+  stripePriceId        String? // Stripe Price ID
+  currentPeriodEnd     DateTime?
+
+  // PayPal subscription fields
+  paypalSubscriptionId String? @unique // PayPal Subscription ID
+
+  canceledAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  // Relations
+  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event         Event              @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  paymentMethod UserPaymentMethod? @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
+  donations     Donation[]
+
+  @@map("recurring_donations")
+}
+
+// ==================== PAYPAL TRANSACTION ====================
+model PayPalTransaction {
+  id              String   @id @default(cuid())
+  donationId      String   @unique
+  paypalOrderId   String   @unique
+  paypalCaptureId String?  @unique
+  status          String // CREATED, APPROVED, COMPLETED, CANCELLED, FAILED
+  payerEmail      String?
+  payerName       String?
+  amount          Float
+  currency        String   @default("USD")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  donation Donation @relation(fields: [donationId], references: [id], onDelete: Cascade)
+
+  @@map("paypal_transactions")
+}
+
+// ==================== PAYMENT AUDIT LOG ====================
+model PaymentAuditLog {
+  id            String   @id @default(cuid())
+  userId        String
+  action        String // payment_initiated, payment_completed, payment_failed, refund_issued, subscription_created, subscription_canceled, etc.
+  provider      String // stripe, paypal
+  amount        Float?
+  currency      String?
+  transactionId String?
+  metadata      String?  @db.Text // JSON string for additional data
+  errorMessage  String?  @db.Text
+  createdAt     DateTime @default(now())
+
+  @@map("payment_audit_logs")
+}
+
+// ==================== SQUAD MODEL ====================
+model Squad {
+  id          String   @id @default(cuid())
+  name        String
+  description String?  @db.Text
+  avatar      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  creatorId String
+  creator   User          @relation("SquadCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  members   SquadMember[]
+  posts     SquadPost[]
+
+  @@map("squads")
+}
+
+// ==================== SQUAD MEMBER ====================
+model SquadMember {
+  id       String   @id @default(cuid())
+  role     String   @default("member") // admin, moderator, member
+  joinedAt DateTime @default(now())
+  userId   String
+  squadId  String
+
+  // Relations
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  squad Squad @relation(fields: [squadId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, squadId])
+  @@map("squad_members")
+}
+
+// ==================== SQUAD POST ====================
+model SquadPost {
+  id        String   @id @default(cuid())
+  content   String   @db.Text
+  image     String?
+  isPinned  Boolean  @default(false)
+  squadId   String
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  squad     Squad           @relation(fields: [squadId], references: [id], onDelete: Cascade)
+  user      User            @relation("SquadPostAuthor", fields: [userId], references: [id], onDelete: Cascade)
+  comments  SquadComment[]
+  reactions SquadReaction[]
+
+  @@map("squad_posts")
+}
+
+// ==================== SQUAD COMMENT ====================
+model SquadComment {
+  id        String   @id @default(cuid())
+  content   String   @db.Text
+  postId    String
+  userId    String
+  parentId  String? // For nested replies
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  post      SquadPost       @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user      User            @relation("SquadCommentAuthor", fields: [userId], references: [id], onDelete: Cascade)
+  parent    SquadComment?   @relation("SquadCommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   SquadComment[]  @relation("SquadCommentReplies")
+  reactions SquadReaction[]
+
+  @@map("squad_comments")
+}
+
+// ==================== SQUAD REACTION ====================
+model SquadReaction {
+  id        String   @id @default(cuid())
+  type      String   @default("like") // like, love, laugh, wow, sad, angry
+  postId    String?
+  commentId String?
+  userId    String
+  createdAt DateTime @default(now())
+
+  // Relations
+  user    User          @relation("SquadReactionAuthor", fields: [userId], references: [id], onDelete: Cascade)
+  post    SquadPost?    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  comment SquadComment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, postId, commentId])
+  @@map("squad_reactions")
+}
+
+// ==================== SUPPORT HISTORY ====================
+model SupportHistory {
+  id        String   @id @default(cuid())
+  userId    String
+  eventId   String
+  createdAt DateTime @default(now())
+
+  // Relations
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, eventId])
+  @@map("support_history")
+}
+
+// ==================== PASS HISTORY ====================
+model PassHistory {
+  id        String   @id @default(cuid())
+  userId    String
+  eventId   String
+  createdAt DateTime @default(now())
+
+  // Relations
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, eventId])
+  @@map("pass_history")
+}
+
+// ==================== BOOKMARK MODEL ====================
+model Bookmark {
+  id        String   @id @default(cuid())
+  userId    String
+  eventId   String?
+  postId    String?
+  commentId String?
+  createdAt DateTime @default(now())
+
+  // Relations
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event   Event?   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  post    Post?    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  comment Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, eventId, postId, commentId])
+  @@map("bookmarks")
+}
+
+// ==================== LIKE MODEL ====================
+model Like {
+  id        String   @id @default(cuid())
+  userId    String
+  postId    String?
+  commentId String?
+  createdAt DateTime @default(now())
+
+  // Relations
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post    Post?    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  comment Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, postId, commentId])
+  @@map("likes")
+}
+
+// ==================== AWARD MODEL ====================
+model Award {
+  id        String   @id @default(cuid())
+  userId    String
+  commentId String
+  createdAt DateTime @default(now())
+
+  // Relations
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  comment Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, commentId])
+  @@map("awards")
+}
+
+// ==================== FOLLOW MODEL ====================
+model Follow {
+  id          String   @id @default(cuid())
+  followerId  String
+  followingId String
+  createdAt   DateTime @default(now())
+
+  // Relations
+  follower  User @relation("UserFollowers", fields: [followerId], references: [id], onDelete: Cascade)
+  following User @relation("UserFollowing", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followingId])
+  @@map("follows")
+}
+
+// ==================== BLOCK MODEL ====================
+model Block {
+  id        String   @id @default(cuid())
+  blockerId String // User who is blocking
+  blockedId String // User being blocked
+  createdAt DateTime @default(now())
+
+  // Relations
+  blocker User @relation("UserBlocking", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked User @relation("UserBlocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  @@map("blocks")
+}
+
+// ==================== NOTIFICATION MODEL ====================
+model Notification {
+  id        String   @id @default(cuid())
+  type      String // like, comment, follow, donation, award, system, support, post_like, post_comment, post_participate, comment_reply, event_update
+  title     String
+  message   String   @db.Text
+  isRead    Boolean  @default(false)
+  actionUrl String?
+  amount    Float?
+  userId    String
+  createdAt DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+// ==================== USER SETTINGS MODEL ====================
+model UserSettings {
+  id                       String   @id @default(cuid())
+  userId                   String   @unique
+  // Notification preferences
+  notificationsDonations   Boolean  @default(true)
+  notificationsComments    Boolean  @default(true)
+  notificationsAwards      Boolean  @default(false)
+  notificationsMentions    Boolean  @default(true)
+  notificationsNewCauses   Boolean  @default(true)
+  notificationsEmail       Boolean  @default(true)
+  notificationsSMS         Boolean  @default(false)
+  // Privacy settings
+  activityVisibility       String   @default("friends") // public, friends, private
+  twoFactorEnabled         Boolean  @default(false)
+  // Personalization
+  language                 String   @default("en")
+  region                   String   @default("us")
+  currency                 String   @default("USD") // ISO 4217 currency code (USD, EUR, GBP, JPY, etc.)
+  theme                    String   @default("system") // light, dark, system
+  // Accessibility
+  highContrast             Boolean  @default(false)
+  screenReader             Boolean  @default(false)
+  textSize                 String   @default("medium") // small, medium, large, extra-large
+  // Interest Tags
+  interestTags             String[] @default([]) // User's preferred interest tags for feed filtering
+  // Volunteering
+  availableForVolunteering Boolean  @default(false)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_settings")
+}
+
+// ==================== CUSTOM FEED MODEL ====================
+model CustomFeed {
+  id        String   @id @default(cuid())
+  name      String
+  tags      String[] // Tags for filtering content
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("custom_feeds")
+}

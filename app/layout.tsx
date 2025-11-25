@@ -3,6 +3,8 @@ import type { Metadata } from "next"
 import { Inter, JetBrains_Mono } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
 import { Suspense } from "react"
+import { Providers } from "@/components/providers"
+import { Toaster as SonnerToaster } from "@/components/ui/sonner"
 import "./globals.css"
 
 const inter = Inter({
@@ -28,10 +30,13 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body className={`font-sans ${inter.variable} ${jetbrainsMono.variable}`}>
-        <Suspense fallback={null}>{children}</Suspense>
-        <Analytics />
+        <Providers>
+          <Suspense fallback={null}>{children}</Suspense>
+          <Analytics />
+          <SonnerToaster />
+        </Providers>
       </body>
     </html>
   )

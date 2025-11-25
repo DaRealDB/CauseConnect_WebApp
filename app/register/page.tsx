@@ -10,22 +10,61 @@ import { Label } from "@/components/ui/label"
 import { Heart, Eye, EyeOff } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { useAuth } from "@/contexts/AuthContext"
+import { toast } from "sonner"
 
 export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [formData, setFormData] = useState({
+    firstName: "",
+    lastName: "",
+    username: "",
+    email: "",
+    password: "",
+    confirmPassword: "",
+  })
   const router = useRouter()
+  const { register } = useAuth()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    // Validate passwords match
+    if (formData.password !== formData.confirmPassword) {
+      toast.error("Passwords do not match")
+      return
+    }
+
+    // Validate password strength
+    if (formData.password.length < 8) {
+      toast.error("Password must be at least 8 characters long")
+      return
+    }
+
+    // Validate username
+    if (formData.username.length < 3) {
+      toast.error("Username must be at least 3 characters long")
+      return
+    }
+
+    if (formData.username.length > 20) {
+      toast.error("Username must be less than 20 characters")
+      return
+    }
+
     setIsLoading(true)
 
-    // Simulate registration process
-    setTimeout(() => {
-      setIsLoading(false)
+    try {
+      await register(formData)
+      toast.success("Account created successfully!")
       router.push("/onboarding/welcome")
-    }, 1500)
+    } catch (error: any) {
+      toast.error(error.message || "Failed to create account. Please try again.")
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -49,16 +88,53 @@ export default function RegisterPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="firstName">First Name</Label>
-                  <Input id="firstName" type="text" placeholder="John" required />
+                  <Input
+                    id="firstName"
+                    type="text"
+                    placeholder="John"
+                    value={formData.firstName}
+                    onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+                    required
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="lastName">Last Name</Label>
-                  <Input id="lastName" type="text" placeholder="Doe" required />
+                  <Input
+                    id="lastName"
+                    type="text"
+                    placeholder="Doe"
+                    value={formData.lastName}
+                    onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+                    required
+                  />
                 </div>
               </div>
               <div className="space-y-2">
+                <Label htmlFor="username">Username</Label>
+                <Input
+                  id="username"
+                  type="text"
+                  placeholder="johndoe"
+                  value={formData.username}
+                  onChange={(e) => setFormData({ ...formData, username: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '') })}
+                  required
+                  minLength={3}
+                  maxLength={20}
+                />
+                <p className="text-xs text-muted-foreground">
+                  3-20 characters, letters, numbers, and underscores only
+                </p>
+              </div>
+              <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
-                <Input id="email" type="email" placeholder="john@example.com" required />
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="john@example.com"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  required
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="password">Password</Label>
@@ -67,6 +143,8 @@ export default function RegisterPage() {
                     id="password"
                     type={showPassword ? "text" : "password"}
                     placeholder="Create a strong password"
+                    value={formData.password}
+                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                     required
                   />
                   <Button
@@ -91,6 +169,8 @@ export default function RegisterPage() {
                     id="confirmPassword"
                     type={showConfirmPassword ? "text" : "password"}
                     placeholder="Confirm your password"
+                    value={formData.confirmPassword}
+                    onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
                     required
                   />
                   <Button

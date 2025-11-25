@@ -10,21 +10,30 @@ import { Label } from "@/components/ui/label"
 import { Heart, Eye, EyeOff } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { useAuth } from "@/contexts/AuthContext"
+import { toast } from "sonner"
 
 export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [emailOrUsername, setEmailOrUsername] = useState("")
+  const [password, setPassword] = useState("")
   const router = useRouter()
+  const { login } = useAuth()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
 
-    // Simulate login process
-    setTimeout(() => {
-      setIsLoading(false)
+    try {
+      await login(emailOrUsername, password)
+      toast.success("Welcome back!")
       router.push("/feed")
-    }, 1500)
+    } catch (error: any) {
+      toast.error(error.message || "Failed to login. Please check your credentials.")
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -47,7 +56,14 @@ export default function LoginPage() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email">Email or Username</Label>
-                <Input id="email" type="text" placeholder="Enter your email or username" required />
+                <Input
+                  id="email"
+                  type="text"
+                  placeholder="Enter your email or username"
+                  value={emailOrUsername}
+                  onChange={(e) => setEmailOrUsername(e.target.value)}
+                  required
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="password">Password</Label>
@@ -56,6 +72,8 @@ export default function LoginPage() {
                     id="password"
                     type={showPassword ? "text" : "password"}
                     placeholder="Enter your password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
                     required
                   />
                   <Button

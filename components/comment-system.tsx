@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -18,188 +19,141 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react"
-
-interface Comment {
-  id: number
-  user: {
-    name: string
-    username: string
-    avatar: string
-    verified: boolean
-  }
-  content: string
-  timestamp: string
-  likes: number
-  dislikes: number
-  replies: Comment[]
-  liked: boolean
-  disliked: boolean
-  saved: boolean
-  awarded: boolean
-}
+import { commentService } from "@/lib/api/services"
+import type { Comment } from "@/lib/api/types"
+import { toast } from "sonner"
+import { useAuth } from "@/contexts/AuthContext"
+import { formatTimestamp, getImageUrl } from "@/lib/utils"
 
 interface CommentSystemProps {
-  postId: number
+  postId: string | number
   initialComments?: Comment[]
 }
 
-const SAMPLE_COMMENTS: Comment[] = [
-  {
-    id: 1,
-    user: {
-      name: "Emma Thompson",
-      username: "emma_cares",
-      avatar: "/placeholder.svg?height=32&width=32&text=ET",
-      verified: false,
-    },
-    content:
-      "This is such an important cause! I've been following their work for months and they're making real impact. Just donated $50.",
-    timestamp: "2 hours ago",
-    likes: 24,
-    dislikes: 1,
-    liked: false,
-    disliked: false,
-    saved: false,
-    awarded: true,
-    replies: [
-      {
-        id: 2,
-        user: {
-          name: "David Kim",
-          username: "david_impact",
-          avatar: "/placeholder.svg?height=32&width=32&text=DK",
-          verified: true,
-        },
-        content:
-          "Completely agree! Their transparency reports are amazing. You can see exactly where every dollar goes.",
-        timestamp: "1 hour ago",
-        likes: 12,
-        dislikes: 0,
-        liked: true,
-        disliked: false,
-        saved: false,
-        awarded: false,
-        replies: [],
-      },
-    ],
-  },
-  {
-    id: 3,
-    user: {
-      name: "Maria Santos",
-      username: "maria_volunteer",
-      avatar: "/placeholder.svg?height=32&width=32&text=MS",
-      verified: false,
-    },
-    content:
-      "I volunteered with them last year in Guatemala. The team is incredible and the work they do is life-changing. Highly recommend supporting this!",
-    timestamp: "4 hours ago",
-    likes: 18,
-    dislikes: 0,
-    liked: false,
-    disliked: false,
-    saved: true,
-    awarded: false,
-    replies: [],
-  },
-]
-
-export function CommentSystem({ postId, initialComments = SAMPLE_COMMENTS }: CommentSystemProps) {
-  const [comments, setComments] = useState<Comment[]>(initialComments)
+export function CommentSystem({ postId, initialComments }: CommentSystemProps) {
+  const { user } = useAuth()
+  const [comments, setComments] = useState<Comment[]>(initialComments || [])
+  const [isLoading, setIsLoading] = useState(!initialComments)
   const [newComment, setNewComment] = useState("")
   const [replyingTo, setReplyingTo] = useState<number | null>(null)
   const [replyText, setReplyText] = useState("")
   const [expandedComments, setExpandedComments] = useState<Set<number>>(new Set())
 
-  const handleSubmitComment = () => {
+  useEffect(() => {
+    if (!initialComments) {
+      loadComments()
+    }
+  }, [postId])
+
+  const loadComments = async () => {
+    try {
+      setIsLoading(true)
+      const loadedComments = await commentService.getComments(postId)
+      setComments(loadedComments)
+    } catch (error: any) {
+      toast.error(error.message || "Failed to load comments")
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleSubmitComment = async () => {
     if (!newComment.trim()) return
 
-    const comment: Comment = {
-      id: Date.now(),
-      user: {
-        name: "You",
-        username: "your_username",
-        avatar: "/placeholder.svg?height=32&width=32&text=You",
-        verified: false,
-      },
-      content: newComment,
-      timestamp: "Just now",
-      likes: 0,
-      dislikes: 0,
-      liked: false,
-      disliked: false,
-      saved: false,
-      awarded: false,
-      replies: [],
+    try {
+      const response = await commentService.createComment(postId, { content: newComment })
+      setComments([response.comment, ...comments])
+      setNewComment("")
+      toast.success("Comment posted!")
+    } catch (error: any) {
+      toast.error(error.message || "Failed to post comment")
     }
-
-    setComments([comment, ...comments])
-    setNewComment("")
   }
 
-  const handleSubmitReply = (parentId: number) => {
+  const handleSubmitReply = async (parentId: number) => {
     if (!replyText.trim()) return
 
-    const reply: Comment = {
-      id: Date.now(),
-      user: {
-        name: "You",
-        username: "your_username",
-        avatar: "/placeholder.svg?height=32&width=32&text=You",
-        verified: false,
-      },
-      content: replyText,
-      timestamp: "Just now",
-      likes: 0,
-      dislikes: 0,
-      liked: false,
-      disliked: false,
-      saved: false,
-      awarded: false,
-      replies: [],
+    try {
+      const response = await commentService.createComment(postId, {
+        content: replyText,
+        parentId,
+      })
+      setComments(
+        comments.map((comment) =>
+          comment.id === parentId
+            ? { ...comment, replies: [...comment.replies, response.comment] }
+            : comment,
+        ),
+      )
+      setReplyText("")
+      setReplyingTo(null)
+      toast.success("Reply posted!")
+    } catch (error: any) {
+      toast.error(error.message || "Failed to post reply")
     }
-
-    setComments(
-      comments.map((comment) =>
-        comment.id === parentId ? { ...comment, replies: [...comment.replies, reply] } : comment,
-      ),
-    )
-    setReplyText("")
-    setReplyingTo(null)
   }
 
-  const handleCommentAction = (commentId: number, action: "like" | "dislike" | "save" | "award") => {
-    setComments(
-      comments.map((comment) => {
-        if (comment.id === commentId) {
-          switch (action) {
-            case "like":
-              return {
-                ...comment,
-                liked: !comment.liked,
-                disliked: comment.liked ? comment.disliked : false,
-                likes: comment.liked ? comment.likes - 1 : comment.likes + 1,
-                dislikes: comment.disliked && !comment.liked ? comment.dislikes - 1 : comment.dislikes,
+  const handleCommentAction = async (
+    commentId: number,
+    action: "like" | "dislike" | "save" | "award",
+  ) => {
+    try {
+      switch (action) {
+        case "like":
+          await commentService.likeComment(commentId)
+          setComments(
+            comments.map((comment) => {
+              if (comment.id === commentId) {
+                return {
+                  ...comment,
+                  liked: !comment.liked,
+                  disliked: false,
+                  likes: comment.liked ? comment.likes - 1 : comment.likes + 1,
+                  dislikes: comment.disliked ? comment.dislikes - 1 : comment.dislikes,
+                }
               }
-            case "dislike":
-              return {
-                ...comment,
-                disliked: !comment.disliked,
-                liked: comment.disliked ? comment.liked : false,
-                dislikes: comment.disliked ? comment.dislikes - 1 : comment.dislikes + 1,
-                likes: comment.liked && !comment.disliked ? comment.likes - 1 : comment.likes,
-              }
-            case "save":
-              return { ...comment, saved: !comment.saved }
-            case "award":
-              return { ...comment, awarded: !comment.awarded }
-            default:
               return comment
-          }
-        }
-        return comment
-      }),
-    )
+            }),
+          )
+          break
+        case "dislike":
+          await commentService.dislikeComment(commentId)
+          setComments(
+            comments.map((comment) => {
+              if (comment.id === commentId) {
+                return {
+                  ...comment,
+                  disliked: !comment.disliked,
+                  liked: false,
+                  dislikes: comment.disliked ? comment.dislikes - 1 : comment.dislikes + 1,
+                  likes: comment.liked ? comment.likes - 1 : comment.likes,
+                }
+              }
+              return comment
+            }),
+          )
+          break
+        case "save":
+          await commentService.saveComment(commentId)
+          setComments(
+            comments.map((comment) =>
+              comment.id === commentId ? { ...comment, saved: !comment.saved } : comment,
+            ),
+          )
+          break
+        case "award":
+          await commentService.awardComment(commentId)
+          setComments(
+            comments.map((comment) =>
+              comment.id === commentId ? { ...comment, awarded: !comment.awarded } : comment,
+            ),
+          )
+          toast.success("Comment awarded!")
+          break
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Failed to perform action")
+    }
   }
 
   const toggleCommentExpansion = (commentId: number) => {
@@ -215,22 +169,34 @@ export function CommentSystem({ postId, initialComments = SAMPLE_COMMENTS }: Com
   const CommentComponent = ({ comment, isReply = false }: { comment: Comment; isReply?: boolean }) => (
     <div className={`${isReply ? "ml-8 border-l-2 border-border pl-4" : ""}`}>
       <div className="flex gap-3">
-        <Avatar className="w-8 h-8 flex-shrink-0">
-          <AvatarImage src={comment.user.avatar || "/placeholder.svg"} />
-          <AvatarFallback>
-            {comment.user.name
-              .split(" ")
-              .map((n) => n[0])
-              .join("")}
-          </AvatarFallback>
-        </Avatar>
+        <Link href={`/profile/${comment.user.username}`}>
+          <Avatar className="w-8 h-8 flex-shrink-0 cursor-pointer hover:ring-2 hover:ring-primary transition-all">
+            <AvatarImage src={getImageUrl(comment.user.avatar)} />
+            <AvatarFallback>
+              {comment.user.name
+                ?.split(" ")
+                .map((n) => n[0])
+                .join("") || comment.user.username?.[0] || "U"}
+            </AvatarFallback>
+          </Avatar>
+        </Link>
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
-            <span className="font-semibold text-sm text-foreground">{comment.user.name}</span>
-            <span className="text-xs text-muted-foreground">@{comment.user.username}</span>
+            <Link
+              href={`/profile/${comment.user.username}`}
+              className="font-semibold text-sm text-foreground hover:text-primary transition-colors"
+            >
+              {comment.user.name || comment.user.username}
+            </Link>
+            <Link
+              href={`/profile/${comment.user.username}`}
+              className="text-xs text-muted-foreground hover:text-primary transition-colors"
+            >
+              @{comment.user.username}
+            </Link>
             <span className="text-xs text-muted-foreground">•</span>
-            <span className="text-xs text-muted-foreground">{comment.timestamp}</span>
+            <span className="text-xs text-muted-foreground">{formatTimestamp(comment.timestamp)}</span>
             {comment.awarded && (
               <Badge variant="secondary" className="text-xs px-1.5 py-0.5">
                 <Award className="w-3 h-3 mr-1" />
@@ -376,8 +342,13 @@ export function CommentSystem({ postId, initialComments = SAMPLE_COMMENTS }: Com
         <div className="mb-6">
           <div className="flex gap-3">
             <Avatar className="w-8 h-8 flex-shrink-0">
-              <AvatarImage src="/placeholder.svg?height=32&width=32&text=You" />
-              <AvatarFallback>You</AvatarFallback>
+              <AvatarImage src={getImageUrl(user?.avatar)} />
+              <AvatarFallback>
+                {user?.name
+                  ?.split(" ")
+                  .map((n) => n[0])
+                  .join("") || user?.username?.[0] || user?.firstName?.[0] || "You"}
+              </AvatarFallback>
             </Avatar>
             <div className="flex-1">
               <Textarea
@@ -395,17 +366,25 @@ export function CommentSystem({ postId, initialComments = SAMPLE_COMMENTS }: Com
         </div>
 
         {/* Comments List */}
-        <div className="space-y-6">
-          {comments.map((comment) => (
-            <CommentComponent key={comment.id} comment={comment} />
-          ))}
-        </div>
-
-        {comments.length === 0 && (
+        {isLoading ? (
           <div className="text-center py-8 text-muted-foreground">
-            <MessageCircle className="w-12 h-12 mx-auto mb-3 opacity-50" />
-            <p>No comments yet. Be the first to share your thoughts!</p>
+            <p>Loading comments...</p>
           </div>
+        ) : (
+          <>
+            <div className="space-y-6">
+              {comments.map((comment) => (
+                <CommentComponent key={comment.id} comment={comment} />
+              ))}
+            </div>
+
+            {comments.length === 0 && (
+              <div className="text-center py-8 text-muted-foreground">
+                <MessageCircle className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                <p>No comments yet. Be the first to share your thoughts!</p>
+              </div>
+            )}
+          </>
         )}
       </CardContent>
     </Card>

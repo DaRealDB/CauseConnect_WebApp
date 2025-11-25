@@ -9,6 +9,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Send, Search, Phone, Video, MoreVertical, Paperclip, Smile, Circle } from "lucide-react"
+import { formatTimestamp } from "@/lib/utils"
 
 interface Message {
   id: string
@@ -154,15 +155,6 @@ export default function ChatPage() {
     }
   }
 
-  const formatTime = (date: Date) => {
-    const now = new Date()
-    const diff = now.getTime() - date.getTime()
-
-    if (diff < 60 * 1000) return "Just now"
-    if (diff < 60 * 60 * 1000) return `${Math.floor(diff / (60 * 1000))}m ago`
-    if (diff < 24 * 60 * 60 * 1000) return `${Math.floor(diff / (60 * 60 * 1000))}h ago`
-    return date.toLocaleDateString()
-  }
 
   return (
     <div className="h-screen bg-gradient-to-br from-background via-orange-50/30 to-peach-50/30 flex">
@@ -216,7 +208,7 @@ export default function ChatPage() {
                           </Badge>
                         )}
                       </h3>
-                      <span className="text-xs text-muted-foreground">{formatTime(chat.lastMessageTime)}</span>
+                      <span className="text-xs text-muted-foreground">{formatTimestamp(chat.lastMessageTime)}</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <p className="text-sm text-muted-foreground truncate">{chat.lastMessage}</p>
@@ -299,7 +291,7 @@ export default function ChatPage() {
                           msg.senderId === "1" ? "text-primary-foreground/70" : "text-muted-foreground"
                         }`}
                       >
-                        {formatTime(msg.timestamp)}
+                        {formatTimestamp(msg.timestamp)}
                       </p>
                     </div>
                   </div>

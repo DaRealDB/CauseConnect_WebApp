@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -17,10 +17,14 @@ import {
   Clock,
   Users,
 } from "lucide-react"
+import { eventService } from "@/lib/api/services"
+import { toast } from "sonner"
+import { getImageUrl } from "@/lib/utils"
+import { useCurrency } from "@/contexts/CurrencyContext"
 
 interface EventCardProps {
   event: {
-    id: number
+    id: number | string
     title: string
     description: string
     image: string
@@ -29,18 +33,32 @@ interface EventCardProps {
     goal: number
     raised: number
     organization: string
+    organizationId?: string | number
+    organizationUsername?: string
     organizationVerified: boolean
     timeLeft: string
     urgency: "high" | "medium" | "low"
+    isBookmarked?: boolean
   }
 }
 
 export function EventCard({ event }: EventCardProps) {
-  const [isSupported, setIsSupported] = useState(false)
-  const [isBookmarked, setIsBookmarked] = useState(false)
+  const { formatAmountSimple } = useCurrency()
+  const [isSupported, setIsSupported] = useState(event.isSupported || false)
+  const [isBookmarked, setIsBookmarked] = useState(event.isBookmarked || false)
   const [isPassed, setIsPassed] = useState(false)
+  const [supportersCount, setSupportersCount] = useState(event.supporters)
+  const [isBookmarking, setIsBookmarking] = useState(false)
+  const [isSupporting, setIsSupporting] = useState(false)
 
-  const progressPercentage = (event.raised / event.goal) * 100
+  // Initialize state from props (DB state)
+  useEffect(() => {
+    setIsSupported(event.isSupported || false)
+    setIsBookmarked(event.isBookmarked || false)
+    setSupportersCount(event.supporters)
+  }, [event.isSupported, event.isBookmarked, event.supporters])
+
+  const progressPercentage = event.goal > 0 ? (event.raised / event.goal) * 100 : 0
 
   const getUrgencyColor = (urgency: string) => {
     switch (urgency) {
@@ -55,6 +73,31 @@ export function EventCard({ event }: EventCardProps) {
     }
   }
 
+  const handleBookmark = async () => {
+    // Optimistic UI update
+    const previousState = isBookmarked
+    setIsBookmarked(!isBookmarked)
+    setIsBookmarking(true)
+
+    try {
+      if (previousState) {
+        await eventService.unbookmarkEvent(event.id)
+        toast.success("Removed from saved events")
+      } else {
+        await eventService.bookmarkEvent(event.id)
+        toast.success("Saved to your events")
+      }
+    } catch (error: any) {
+      // Revert on error
+      setIsBookmarked(previousState)
+      const errorMessage = error.message || "Failed to update bookmark"
+      toast.error(errorMessage)
+      console.error("Bookmark error:", error)
+    } finally {
+      setIsBookmarking(false)
+    }
+  }
+
   if (isPassed) {
     return null // Hide passed events
   }
@@ -65,9 +108,12 @@ export function EventCard({ event }: EventCardProps) {
       <div className="relative">
         <Link href={`/event/${event.id}`}>
           <img
-            src={event.image || "/placeholder.svg"}
+            src={getImageUrl(event.image)}
             alt={event.title}
             className="w-full h-48 object-cover cursor-pointer hover:scale-105 transition-transform duration-300"
+            onError={(e) => {
+              (e.target as HTMLImageElement).src = "/placeholder.svg"
+            }}
           />
         </Link>
         {event.urgency === "high" && <Badge className="absolute top-3 left-3 bg-red-500 text-white">Urgent</Badge>}
@@ -75,7 +121,15 @@ export function EventCard({ event }: EventCardProps) {
           variant="ghost"
           size="sm"
           className="absolute top-3 right-3 bg-black/20 hover:bg-black/40 text-white"
-          onClick={() => setIsPassed(true)}
+          onClick={async () => {
+            try {
+              await eventService.passEvent(event.id)
+              setIsPassed(true)
+              toast.success("Event passed")
+            } catch (error: any) {
+              toast.error(error.message || "Failed to pass event")
+            }
+          }}
         >
           <X className="w-4 h-4" />
         </Button>
@@ -84,8 +138,20 @@ export function EventCard({ event }: EventCardProps) {
       <CardContent className="p-6">
         {/* Organization */}
         <div className="flex items-center gap-2 mb-3">
-          <span className="text-sm font-medium text-muted-foreground">{event.organization}</span>
-          {event.organizationVerified && <CheckCircle className="w-4 h-4 text-primary" />}
+          {event.organizationUsername ? (
+            <Link
+              href={`/profile/${event.organizationUsername}`}
+              className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"
+            >
+              {event.organization}
+              {event.organizationVerified && <CheckCircle className="w-4 h-4 text-primary" />}
+            </Link>
+          ) : (
+            <>
+              <span className="text-sm font-medium text-muted-foreground">{event.organization}</span>
+              {event.organizationVerified && <CheckCircle className="w-4 h-4 text-primary" />}
+            </>
+          )}
         </div>
 
         {/* Title and Description */}
@@ -108,19 +174,28 @@ export function EventCard({ event }: EventCardProps) {
         {/* Progress */}
         <div className="mb-4">
           <div className="flex justify-between text-sm mb-2">
-            <span className="font-medium text-foreground">${event.raised.toLocaleString()} raised</span>
-            <span className="text-muted-foreground">${event.goal.toLocaleString()} goal</span>
+            <span className="font-medium text-foreground">{formatAmountSimple(event.raised)} raised</span>
+            <span className="text-muted-foreground">{formatAmountSimple(event.goal)} goal</span>
           </div>
-          <div className="w-full bg-secondary rounded-full h-2 mb-2">
-            <div
-              className="bg-primary h-2 rounded-full transition-all duration-300"
-              style={{ width: `${Math.min(progressPercentage, 100)}%` }}
-            />
-          </div>
+          {event.raised > 0 ? (
+            <div className="w-full bg-secondary rounded-full h-2 mb-2">
+              <div
+                className="bg-orange-500 h-2 rounded-full transition-all duration-300"
+                style={{ width: `${Math.min(progressPercentage, 100)}%` }}
+              />
+            </div>
+          ) : (
+            <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
+              <div
+                className="bg-gray-300 h-2 rounded-full transition-all duration-300"
+                style={{ width: `${Math.min(progressPercentage, 100)}%` }}
+              />
+            </div>
+          )}
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <div className="flex items-center gap-1">
               <Users className="w-3 h-3" />
-              <span>{event.supporters} supporters</span>
+              <span>{supportersCount} supporters</span>
             </div>
             <div className="flex items-center gap-1">
               <Clock className="w-3 h-3" />
@@ -136,7 +211,35 @@ export function EventCard({ event }: EventCardProps) {
               size="sm"
               variant={isSupported ? "default" : "outline"}
               className="flex items-center gap-2"
-              onClick={() => setIsSupported(!isSupported)}
+              disabled={isSupporting}
+              onClick={async () => {
+                if (isSupporting) return
+                
+                const previousState = isSupported
+                const previousCount = supportersCount
+                setIsSupported(!isSupported)
+                setSupportersCount((prev) => (previousState ? Math.max(0, prev - 1) : prev + 1))
+                setIsSupporting(true)
+
+                try {
+                  if (previousState) {
+                    await eventService.passEvent(event.id)
+                    toast.success("Support removed")
+                  } else {
+                    await eventService.supportEvent(event.id)
+                    toast.success("Event supported!")
+                  }
+                  // Reload event data to get accurate counts from DB
+                  // For now, we'll keep optimistic update since we don't have a refresh method
+                } catch (error: any) {
+                  // Revert on error
+                  setIsSupported(previousState)
+                  setSupportersCount(previousCount)
+                  toast.error(error.message || "Failed to update support")
+                } finally {
+                  setIsSupporting(false)
+                }
+              }}
             >
               <Heart className={`w-4 h-4 ${isSupported ? "fill-current" : ""}`} />
               {isSupported ? "Supported" : "Support"}
@@ -150,7 +253,13 @@ export function EventCard({ event }: EventCardProps) {
           </div>
 
           <div className="flex items-center gap-1">
-            <Button size="sm" variant="ghost" onClick={() => setIsBookmarked(!isBookmarked)}>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={handleBookmark}
+              disabled={isBookmarking}
+              className={isBookmarked ? "text-orange-500" : ""}
+            >
               <Bookmark className={`w-4 h-4 ${isBookmarked ? "fill-current" : ""}`} />
             </Button>
             <Button size="sm" variant="ghost">

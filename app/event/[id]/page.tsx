@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -8,50 +9,126 @@ import { Heart, Share2, Bookmark, Award, CheckCircle, Clock, Users, ArrowLeft } 
 import Link from "next/link"
 import { CommentSystem } from "@/components/comment-system"
 import { FeedHeader } from "@/components/feed-header"
-
-// Mock event data - in real app this would come from params and API
-const EVENT_DATA = {
-  id: 1,
-  title: "Emergency Relief for Flood Victims",
-  description:
-    "Urgent support needed for families affected by recent flooding in Southeast Asia. Our team is on the ground providing emergency shelter, food, and medical supplies to over 2,000 displaced families. The situation is critical and every donation helps save lives.",
-  fullDescription: `The recent flooding in Southeast Asia has displaced thousands of families, leaving them without basic necessities. Our emergency response team has been working around the clock to provide:
-
-• Emergency shelter and temporary housing
-• Clean water and food supplies
-• Medical care and supplies
-• Clothing and hygiene kits
-• Psychological support services
-
-We've already helped over 2,000 families, but there are still many more in need. Your donation will go directly to purchasing supplies and supporting our relief efforts on the ground.
-
-Our team has been working in disaster relief for over 15 years and has a proven track record of getting aid to those who need it most. We provide regular updates and full transparency on how funds are used.`,
-  image: "/placeholder.svg?height=400&width=600&text=Flood+Relief+Efforts",
-  tags: ["Emergency", "Disaster Relief", "Asia", "Urgent"],
-  supporters: 1247,
-  goal: 100000,
-  raised: 67500,
-  organization: {
-    name: "Global Relief Network",
-    verified: true,
-    avatar: "/placeholder.svg?height=40&width=40&text=GRN",
-    description: "International humanitarian organization providing emergency relief worldwide since 2008.",
-  },
-  timeLeft: "12 days left",
-  urgency: "high" as const,
-  updates: [
-    {
-      id: 1,
-      title: "Relief supplies delivered to 500 more families",
-      content: "Today we successfully delivered emergency kits to 500 additional families in the hardest-hit areas.",
-      timestamp: "2 days ago",
-      image: "/placeholder.svg?height=200&width=300&text=Relief+Delivery",
-    },
-  ],
-}
+import { AdminEventPanel } from "@/components/admin-event-panel"
+import { eventService } from "@/lib/api/services"
+import type { Event } from "@/lib/api/types"
+import { toast } from "sonner"
+import { useParams } from "next/navigation"
+import { useAuth } from "@/contexts/AuthContext"
+import { useCurrency } from "@/contexts/CurrencyContext"
+import { getImageUrl, formatTimestamp } from "@/lib/utils"
 
 export default function EventDetailPage() {
-  const progressPercentage = (EVENT_DATA.raised / EVENT_DATA.goal) * 100
+  const params = useParams()
+  const { formatAmountSimple } = useCurrency()
+  const { user: currentUser } = useAuth()
+  const eventId = params.id as string
+  const [event, setEvent] = useState<Event | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSupported, setIsSupported] = useState(false)
+  const [isBookmarked, setIsBookmarked] = useState(false)
+
+  useEffect(() => {
+    if (eventId) {
+      loadEvent()
+    }
+  }, [eventId])
+
+  const loadEvent = async () => {
+    try {
+      setIsLoading(true)
+      const eventData = await eventService.getEventById(eventId)
+      setEvent(eventData)
+      setIsSupported(eventData.isSupported)
+      setIsBookmarked(eventData.isBookmarked)
+    } catch (error: any) {
+      toast.error(error.message || "Failed to load event")
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleSupport = async () => {
+    try {
+      if (isSupported) {
+        await eventService.passEvent(eventId)
+        setIsSupported(false)
+        toast.success("Support removed")
+      } else {
+        await eventService.supportEvent(eventId)
+        setIsSupported(true)
+        toast.success("Event supported!")
+      }
+      // Reload event to get updated counts
+      await loadEvent()
+    } catch (error: any) {
+      toast.error(error.message || "Failed to update support")
+    }
+  }
+
+  const handleBookmark = async () => {
+    try {
+      if (isBookmarked) {
+        await eventService.unbookmarkEvent(eventId)
+        setIsBookmarked(false)
+      } else {
+        await eventService.bookmarkEvent(eventId)
+        setIsBookmarked(true)
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Failed to update bookmark")
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-background via-secondary/20 to-accent/10">
+        <FeedHeader />
+        <div className="container mx-auto px-4 py-6">
+          <div className="text-center py-12">
+            <p className="text-muted-foreground">Loading event...</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (!event) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-background via-secondary/20 to-accent/10">
+        <FeedHeader />
+        <div className="container mx-auto px-4 py-6">
+          <div className="text-center py-12">
+            <p className="text-muted-foreground">Event not found</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const EVENT_DATA = {
+    id: event.id,
+    title: event.title,
+    description: event.description,
+    fullDescription: event.fullDescription || event.description,
+    image: event.image || "/placeholder.svg",
+    tags: event.tags,
+    supporters: event.supporters,
+    goal: event.goal,
+    raised: event.raised,
+    organization: {
+      name: event.organization.name,
+      verified: event.organization.verified,
+      avatar: event.organization.avatar || "/placeholder.svg",
+      description: event.organization.description || "",
+    },
+    timeLeft: event.timeLeft || "",
+    urgency: event.urgency,
+    updates: event.updates || [],
+  }
+
+  const progressPercentage = (event.raised / event.goal) * 100
+  const isOwner = currentUser?.id === event.organization.id
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-secondary/20 to-accent/10">
@@ -67,13 +144,23 @@ export default function EventDetailPage() {
             </Link>
           </Button>
 
+          {/* Admin Panel - Only visible to event owner */}
+          {isOwner && (
+            <div className="mb-6">
+              <AdminEventPanel event={event} onUpdate={loadEvent} />
+            </div>
+          )}
+
           {/* Event Header */}
           <Card className="border-0 shadow-xl bg-card/80 backdrop-blur-sm overflow-hidden mb-6">
             <div className="relative">
               <img
-                src={EVENT_DATA.image || "/placeholder.svg"}
+                src={getImageUrl(EVENT_DATA.image)}
                 alt={EVENT_DATA.title}
                 className="w-full h-64 md:h-80 object-cover"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src = "/placeholder.svg"
+                }}
               />
               {EVENT_DATA.urgency === "high" && (
                 <Badge className="absolute top-4 left-4 bg-red-500 text-white">Urgent</Badge>
@@ -84,7 +171,7 @@ export default function EventDetailPage() {
               {/* Organization */}
               <div className="flex items-center gap-3 mb-4">
                 <Avatar className="w-12 h-12">
-                  <AvatarImage src={EVENT_DATA.organization.avatar || "/placeholder.svg"} />
+                  <AvatarImage src={getImageUrl(EVENT_DATA.organization.avatar)} />
                   <AvatarFallback>GRN</AvatarFallback>
                 </Avatar>
                 <div>
@@ -112,8 +199,8 @@ export default function EventDetailPage() {
               {/* Progress */}
               <div className="mb-6">
                 <div className="flex justify-between text-lg font-semibold mb-3">
-                  <span className="text-foreground">${EVENT_DATA.raised.toLocaleString()} raised</span>
-                  <span className="text-muted-foreground">${EVENT_DATA.goal.toLocaleString()} goal</span>
+                  <span className="text-foreground">{formatAmountSimple(EVENT_DATA.raised)} raised</span>
+                  <span className="text-muted-foreground">{formatAmountSimple(EVENT_DATA.goal)} goal</span>
                 </div>
                 <div className="w-full bg-secondary rounded-full h-3 mb-3">
                   <div
@@ -135,21 +222,32 @@ export default function EventDetailPage() {
 
               {/* Action Buttons */}
               <div className="flex flex-wrap gap-3 mb-6">
-                <Button size="lg" className="flex items-center gap-2">
-                  <Heart className="w-5 h-5" />
-                  Support This Cause
+                <Button
+                  size="lg"
+                  className="flex items-center gap-2"
+                  onClick={handleSupport}
+                  variant={isSupported ? "default" : "outline"}
+                >
+                  <Heart className={`w-5 h-5 ${isSupported ? "fill-current" : ""}`} />
+                  {isSupported ? "Supported" : "Support This Cause"}
+                </Button>
+                <Button size="lg" variant="outline" className="flex items-center gap-2 bg-transparent" asChild>
+                  <Link href={`/donate/${event.id}`}>
+                    Donate Now
+                  </Link>
+                </Button>
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="flex items-center gap-2 bg-transparent"
+                  onClick={handleBookmark}
+                >
+                  <Bookmark className={`w-5 h-5 ${isBookmarked ? "fill-current" : ""}`} />
+                  {isBookmarked ? "Saved" : "Save"}
                 </Button>
                 <Button size="lg" variant="outline" className="flex items-center gap-2 bg-transparent">
                   <Share2 className="w-5 h-5" />
                   Share
-                </Button>
-                <Button size="lg" variant="outline" className="flex items-center gap-2 bg-transparent">
-                  <Bookmark className="w-5 h-5" />
-                  Save
-                </Button>
-                <Button size="lg" variant="outline" className="flex items-center gap-2 bg-transparent">
-                  <Award className="w-5 h-5" />
-                  Award
                 </Button>
               </div>
 
@@ -165,18 +263,32 @@ export default function EventDetailPage() {
           <Card className="border-0 shadow-lg bg-card/80 backdrop-blur-sm mb-6">
             <CardContent className="p-6">
               <h3 className="text-xl font-semibold text-foreground mb-4">Recent Updates</h3>
-              {EVENT_DATA.updates.map((update) => (
-                <div key={update.id} className="border-b border-border last:border-b-0 pb-4 last:pb-0">
-                  <h4 className="font-semibold text-foreground mb-2">{update.title}</h4>
-                  <p className="text-muted-foreground mb-2">{update.content}</p>
-                  <span className="text-sm text-muted-foreground">{update.timestamp}</span>
-                </div>
-              ))}
+              {EVENT_DATA.updates.length > 0 ? (
+                EVENT_DATA.updates.map((update) => (
+                  <div key={update.id} className="border-b border-border last:border-b-0 pb-4 last:pb-0 mb-4">
+                    <h4 className="font-semibold text-foreground mb-2">{update.title}</h4>
+                    <p className="text-muted-foreground mb-2">{update.content}</p>
+                    {update.image && (
+                      <img
+                        src={getImageUrl(update.image)}
+                        alt={update.title}
+                        className="w-full rounded-lg mb-2 max-h-64 object-cover"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).style.display = "none"
+                        }}
+                      />
+                    )}
+                    <span className="text-sm text-muted-foreground">{formatTimestamp(update.timestamp)}</span>
+                  </div>
+                ))
+              ) : (
+                <p className="text-muted-foreground">No updates yet</p>
+              )}
             </CardContent>
           </Card>
 
           {/* Comment System */}
-          <CommentSystem postId={EVENT_DATA.id} />
+          <CommentSystem postId={event.id} />
         </div>
       </div>
     </div>

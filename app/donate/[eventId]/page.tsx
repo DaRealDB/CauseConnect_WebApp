@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -12,10 +12,16 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Label } from "@/components/ui/label"
 import { Heart, Shield, CreditCard, Banknote, Smartphone, ArrowLeft } from "lucide-react"
-import { useRouter } from "next/navigation"
+import { useRouter, useParams } from "next/navigation"
+import { eventService, donationService } from "@/lib/api/services"
+import { toast } from "sonner"
+import { useCurrency } from "@/contexts/CurrencyContext"
 
-export default function DonatePage({ params }: { params: { eventId: string } }) {
+export default function DonatePage() {
   const router = useRouter()
+  const params = useParams()
+  const eventId = params.eventId as string
+  const { formatAmountSimple, getSymbol } = useCurrency()
   const [amount, setAmount] = useState("")
   const [customAmount, setCustomAmount] = useState("")
   const [paymentMethod, setPaymentMethod] = useState("card")
@@ -27,17 +33,55 @@ export default function DonatePage({ params }: { params: { eventId: string } }) 
 
   const suggestedAmounts = ["10", "25", "50", "100", "250", "500"]
 
-  // Mock event data
-  const event = {
-    id: params.eventId,
-    title: "Clean Water Initiative for Rural Kenya",
-    organization: "Water for Life Foundation",
-    image: "/clean-water-well-in-kenya-village.jpg",
-    raised: 37500,
-    goal: 50000,
-    supporters: 234,
-    description:
-      "Help us bring clean, safe drinking water to rural communities in Kenya by building sustainable wells and water purification systems.",
+  const [event, setEvent] = useState<{
+    id: string
+    title: string
+    organization: string
+    image?: string
+    raised: number
+    goal: number
+    supporters: number
+    description: string
+  } | null>(null)
+  const [isLoadingEvent, setIsLoadingEvent] = useState(true)
+
+  useEffect(() => {
+    if (eventId) {
+      loadEvent()
+    }
+  }, [eventId])
+
+  const loadEvent = async () => {
+    try {
+      setIsLoadingEvent(true)
+      const eventData = await eventService.getEventById(eventId)
+      setEvent({
+        id: eventId,
+        title: eventData.title,
+        organization: eventData.organization.name,
+        image: eventData.image,
+        raised: eventData.raised,
+        goal: eventData.goal,
+        supporters: eventData.supporters,
+        description: eventData.description,
+      })
+    } catch (error: any) {
+      toast.error(error.message || "Failed to load event")
+    } finally {
+      setIsLoadingEvent(false)
+    }
+  }
+
+  if (isLoadingEvent || !event) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-background via-orange-50/30 to-peach-50/30">
+        <div className="container mx-auto px-4 py-8">
+          <div className="text-center py-12">
+            <p className="text-muted-foreground">Loading event...</p>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   const progress = (event.raised / event.goal) * 100
@@ -56,26 +100,31 @@ export default function DonatePage({ params }: { params: { eventId: string } }) 
     return customAmount || amount
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     const donationAmount = getCurrentAmount()
-    if (!donationAmount || Number.parseFloat(donationAmount) <= 0) return
+    if (!donationAmount || Number.parseFloat(donationAmount) <= 0) {
+      toast.error("Please enter a valid donation amount")
+      return
+    }
 
-    console.log("[v0] Processing donation:", {
-      eventId: params.eventId,
-      amount: donationAmount,
-      paymentMethod,
-      isRecurring,
-      isAnonymous,
-      message,
-      email,
-      name,
-    })
+    try {
+      await donationService.createDonation({
+        eventId: eventId,
+        amount: Number.parseFloat(donationAmount),
+        paymentMethod: paymentMethod as "card" | "paypal" | "apple",
+        isRecurring,
+        isAnonymous,
+        message: message || undefined,
+        email,
+        name: isAnonymous ? undefined : name,
+      })
 
-    // Simulate payment processing
-    setTimeout(() => {
+      toast.success("Donation processed successfully!")
       router.push(`/donate/success?amount=${donationAmount}&event=${encodeURIComponent(event.title)}`)
-    }, 2000)
+    } catch (error: any) {
+      toast.error(error.message || "Failed to process donation. Please try again.")
+    }
   }
 
   return (
@@ -114,7 +163,7 @@ export default function DonatePage({ params }: { params: { eventId: string } }) 
 
                   <div className="grid grid-cols-2 gap-4 text-center">
                     <div>
-                      <div className="text-2xl font-bold text-foreground">${event.raised.toLocaleString()}</div>
+                      <div className="text-2xl font-bold text-foreground">{formatAmountSimple(event.raised)}</div>
                       <div className="text-sm text-muted-foreground">raised</div>
                     </div>
                     <div>
@@ -175,13 +224,13 @@ export default function DonatePage({ params }: { params: { eventId: string } }) 
                           onClick={() => handleAmountSelect(suggestedAmount)}
                           className="h-12"
                         >
-                          ${suggestedAmount}
+                          {getSymbol()}{suggestedAmount}
                         </Button>
                       ))}
                     </div>
                     <div className="relative">
                       <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground">
-                        $
+                        {getSymbol()}
                       </span>
                       <Input
                         type="number"
@@ -283,7 +332,7 @@ export default function DonatePage({ params }: { params: { eventId: string } }) 
                       <CardContent className="p-4">
                         <div className="flex justify-between items-center">
                           <span className="font-medium">{isRecurring ? "Monthly Donation" : "One-time Donation"}</span>
-                          <span className="text-2xl font-bold text-primary">${getCurrentAmount()}</span>
+                          <span className="text-2xl font-bold text-primary">{getSymbol()}{getCurrentAmount()}</span>
                         </div>
                       </CardContent>
                     </Card>
@@ -296,7 +345,7 @@ export default function DonatePage({ params }: { params: { eventId: string } }) 
                     disabled={!getCurrentAmount() || Number.parseFloat(getCurrentAmount()) <= 0}
                   >
                     <Heart className="h-5 w-5 mr-2" />
-                    Donate ${getCurrentAmount() || "0"}
+                    Donate {getSymbol()}{getCurrentAmount() || "0"}
                   </Button>
 
                   <div className="text-xs text-muted-foreground text-center">
