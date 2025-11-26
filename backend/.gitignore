@@ -16,6 +16,10 @@ build/
 # Prisma
 prisma/migrations/
 
+# Uploads (keep structure, ignore files)
+uploads/*
+!uploads/.gitkeep
+
 # Logs
 logs/
 *.log
