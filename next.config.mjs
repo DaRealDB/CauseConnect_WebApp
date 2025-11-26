@@ -1,13 +1,26 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Note: Remove ignoreBuildErrors in production for better code quality
+  // Uncomment these for production builds:
+  // eslint: {
+  //   ignoreDuringBuilds: false,
+  // },
+  // typescript: {
+  //   ignoreBuildErrors: false,
+  // },
   eslint: {
-    ignoreDuringBuilds: true,
+    ignoreDuringBuilds: true, // Remove this in production
   },
   typescript: {
-    ignoreBuildErrors: true,
+    ignoreBuildErrors: true, // Remove this in production
   },
   images: {
-    unoptimized: true,
+    // Enable image optimization in production
+    // Add your backend domain for remote images
+    domains: process.env.NEXT_PUBLIC_API_URL 
+      ? [new URL(process.env.NEXT_PUBLIC_API_URL).hostname]
+      : [],
+    unoptimized: process.env.NODE_ENV === 'production' ? false : true,
   },
 }
 

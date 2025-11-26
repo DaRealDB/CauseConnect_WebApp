@@ -3,11 +3,12 @@ import { AuthRequest } from '../middleware/auth'
 import { customFeedService } from '../services/customFeed.service'
 
 export const customFeedController = {
-  async createFeed(req: AuthRequest, res: Response, next: NextFunction) {
+  async createFeed(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const { name, tags } = req.body
       if (!name || !Array.isArray(tags)) {
-        return res.status(400).json({ message: 'Name and tags are required' })
+        res.status(400).json({ message: 'Name and tags are required' })
+        return
       }
       const feed = await customFeedService.createFeed(req.userId!, { name, tags })
       res.status(201).json(feed)

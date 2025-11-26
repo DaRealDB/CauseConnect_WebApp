@@ -3,7 +3,7 @@ import { AuthRequest } from '../middleware/auth'
 import { exploreService } from '../services/explore.service'
 
 export const exploreController = {
-  async getExploreContent(req: AuthRequest, res: Response, next: NextFunction) {
+  async getExploreContent(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const filter = (req.query.filter as string) || 'all'
       const page = parseInt(req.query.page as string) || 1
@@ -51,7 +51,8 @@ export const exploreController = {
           break
 
         default:
-          return res.status(400).json({ message: 'Invalid filter. Must be: all, groups, posts, or events' })
+          res.status(400).json({ message: 'Invalid filter. Must be: all, groups, posts, or events' })
+          return
       }
 
       res.json(result)

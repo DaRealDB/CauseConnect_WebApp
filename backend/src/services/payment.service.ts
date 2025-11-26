@@ -562,7 +562,10 @@ export const paymentService = {
         actionUrl = `/event/${eventId}`
         notificationMessage = `${donor ? `${donor.firstName} ${donor.lastName}`.trim() || donor.username : 'Someone'} donated $${amount.toFixed(2)} to your event "${donation.event.title}"`
       } else if (postId && donation.post) {
-        recipientId = donation.post.user.id
+        const postWithUser = donation.post as { user?: { id: string; username: string } }
+        if (postWithUser.user) {
+          recipientId = postWithUser.user.id
+        }
         actionUrl = `/post/${postId}`
         notificationMessage = `${donor ? `${donor.firstName} ${donor.lastName}`.trim() || donor.username : 'Someone'} donated $${amount.toFixed(2)} on your post`
       } else if (recipientUserId) {
@@ -576,9 +579,7 @@ export const paymentService = {
       }
 
       if (recipientId && recipientId !== userId) {
-        const donorName = isAnonymous
-          ? 'An anonymous donor'
-          : (donor ? `${donor.firstName} ${donor.lastName}`.trim() || donor.username : 'Someone')
+        // donorName computed but not used - notification message already computed above
 
         await createNotification({
           userId: recipientId,
@@ -768,13 +769,29 @@ export const paymentService = {
           ? 'An anonymous donor'
           : (donor ? `${donor.firstName} ${donor.lastName}`.trim() || donor.username : 'Someone')
 
+        // Get recipient username for profile URL
+        let recipientUsername = ''
+        if (data.recipientUserId) {
+          const recipient = await prisma.user.findUnique({
+            where: { id: data.recipientUserId },
+            select: { username: true },
+          })
+          recipientUsername = recipient?.username || ''
+        } else if (data.postId) {
+          const post = await prisma.post.findUnique({
+            where: { id: data.postId },
+            include: { user: { select: { username: true } } },
+          })
+          recipientUsername = post?.user?.username || ''
+        }
+
         await createNotification({
           userId: recipientId,
           type: 'donation',
           title: 'New Donation Received (PayPal Simulation)',
           message: `${donorName} donated $${data.amount.toFixed(2)} ${data.eventId ? `to your event "${title}"` : data.postId ? `on your post` : `to you`} (Simulated PayPal)`,
           amount: data.amount,
-          actionUrl: data.eventId ? `/event/${data.eventId}` : data.postId ? `/post/${data.postId}` : `/profile/${recipient?.username || ''}`,
+          actionUrl: data.eventId ? `/event/${data.eventId}` : data.postId ? `/post/${data.postId}` : `/profile/${recipientUsername}`,
         })
       }
 
@@ -784,7 +801,7 @@ export const paymentService = {
         'paypal',
         data.amount,
         data.currency || 'USD',
-        donation.transactionId,
+        donation.transactionId || undefined,
         { donationId: donation.id, eventId: data.eventId, postId: data.postId, recipientUserId: data.recipientUserId }
       )
 
@@ -869,7 +886,6 @@ export const paymentService = {
         },
         product_data: {
           name: `Monthly donation to ${event.title}`,
-          description: `Recurring donation to ${event.title}`,
         },
       })
 
@@ -901,7 +917,7 @@ export const paymentService = {
           stripeSubscriptionId: subscription.id,
           stripeCustomerId: customerId,
           stripePriceId: price.id,
-          currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+          currentPeriodEnd: new Date((subscription as any).current_period_end * 1000),
           paymentMethodId: data.paymentMethodId || null,
         },
       })

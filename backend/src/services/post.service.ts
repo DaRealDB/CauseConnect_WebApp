@@ -1,5 +1,5 @@
 import prisma from '../config/database'
-import { createError } from '../middleware/errorHandler'
+// import { createError } from '../middleware/errorHandler' // Unused import
 import { createNotification } from '../utils/notifications'
 import { normalizeTagName } from './tag.service'
 

@@ -360,19 +360,65 @@ For complete API documentation, see [Backend README](./backend/README.md) or imp
 
 ### Frontend (Vercel)
 
-1. **Install Vercel CLI** (optional):
+**📖 Quick Start:** See [DEPLOY_TO_VERCEL_QUICK_START.md](./DEPLOY_TO_VERCEL_QUICK_START.md) for a 5-minute deployment guide.
+
+**📚 Full Guide:** See [VERCEL_DEPLOYMENT.md](./VERCEL_DEPLOYMENT.md) for detailed instructions.
+
+#### Method 1: Using Vercel Dashboard (Recommended)
+
+1. **Go to [vercel.com](https://vercel.com)** and sign in with GitHub
+2. **Click "Add New Project"** → Import your repository
+3. **Configure Project**:
+   - Framework: Next.js (auto-detected)
+   - Root Directory: `./`
+4. **Add Environment Variables**:
+   - `NEXT_PUBLIC_API_URL` - Your backend API URL (e.g., `https://your-backend.onrender.com/api`)
+   - `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` - Stripe publishable key
+   - `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` - (Optional) Google Maps API key
+5. **Click "Deploy"**
+
+#### Method 2: Using Vercel CLI
+
+1. **Install Vercel CLI**:
 ```bash
 npm i -g vercel
 ```
 
-2. **Deploy**:
+2. **Login and Deploy**:
 ```bash
+vercel login
 vercel
 ```
 
-3. **Configure Environment Variables** in Vercel dashboard:
-   - `NEXT_PUBLIC_API_URL` - Your backend API URL
-   - `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` - Stripe publishable key
+3. **Add Environment Variables**:
+```bash
+vercel env add NEXT_PUBLIC_API_URL
+vercel env add NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+```
+
+4. **Deploy to Production**:
+```bash
+vercel --prod
+```
+
+#### Important: Update Backend CORS
+
+After deploying, update your backend environment variables:
+
+```env
+CORS_ORIGINS=https://your-app.vercel.app,https://your-custom-domain.com
+FRONTEND_URL=https://your-app.vercel.app
+```
+
+Redeploy your backend after updating CORS settings.
+
+#### Post-Deployment Checklist
+
+- ✅ Test homepage loads
+- ✅ Test login/registration
+- ✅ Verify API calls work (check browser console)
+- ✅ Check for CORS errors
+- ✅ Test payment flow (if using Stripe)
 
 ### Backend (Render/Railway/Heroku)
 

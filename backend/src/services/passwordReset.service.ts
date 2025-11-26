@@ -1,6 +1,6 @@
 import prisma from '../config/database'
 import { createError } from '../middleware/errorHandler'
-import { hashPassword, comparePassword } from '../utils/password'
+import { hashPassword } from '../utils/password'
 import { verificationService } from './verification.service'
 
 export const passwordResetService = {

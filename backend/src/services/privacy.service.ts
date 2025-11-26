@@ -429,11 +429,13 @@ export const privacyService = {
           eventTitle: support.event.title,
           supportedAt: support.createdAt.toISOString(),
         })),
-        bookmarks: user.bookmarks.map(bookmark => ({
-          eventId: bookmark.event.id,
-          eventTitle: bookmark.event.title,
-          bookmarkedAt: bookmark.createdAt.toISOString(),
-        })),
+        bookmarks: user.bookmarks
+          .filter(bookmark => bookmark.event !== null)
+          .map(bookmark => ({
+            eventId: bookmark.event!.id,
+            eventTitle: bookmark.event!.title,
+            bookmarkedAt: bookmark.createdAt.toISOString(),
+          })),
       },
       social: {
         following: user.following.map(follow => ({

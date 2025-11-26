@@ -22,10 +22,11 @@ export const userController = {
     }
   },
 
-  async uploadAvatar(req: AuthRequest, res: Response, next: NextFunction) {
+  async uploadAvatar(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       if (!req.file) {
-        return res.status(400).json({ message: 'No file uploaded' })
+        res.status(400).json({ message: 'No file uploaded' })
+        return
       }
 
       const result = await userService.uploadAvatar(req.userId!, req.file)
@@ -35,10 +36,11 @@ export const userController = {
     }
   },
 
-  async uploadCoverImage(req: AuthRequest, res: Response, next: NextFunction) {
+  async uploadCoverImage(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       if (!req.file) {
-        return res.status(400).json({ message: 'No file uploaded' })
+        res.status(400).json({ message: 'No file uploaded' })
+        return
       }
 
       const result = await userService.uploadCoverImage(req.userId!, req.file)
@@ -79,13 +81,14 @@ export const userController = {
     }
   },
 
-  async searchUsers(req: AuthRequest, res: Response, next: NextFunction) {
+  async searchUsers(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const query = req.query.query as string
       const limit = parseInt(req.query.limit as string) || 10
 
       if (!query || query.trim().length === 0) {
-        return res.json([])
+        res.json([])
+        return
       }
 
       const users = await userService.searchUsers(query.trim(), limit)
@@ -126,12 +129,13 @@ export const userController = {
     }
   },
 
-  async updatePreferences(req: AuthRequest, res: Response, next: NextFunction) {
+  async updatePreferences(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const { tags } = req.body
       console.log(`[Controller] updatePreferences called - userId: ${req.userId}, tags:`, tags)
       if (!Array.isArray(tags)) {
-        return res.status(400).json({ message: 'Tags must be an array' })
+        res.status(400).json({ message: 'Tags must be an array' })
+        return
       }
       const result = await userService.updatePreferences(req.userId!, tags)
       console.log(`[Controller] updatePreferences result:`, result)
@@ -151,14 +155,16 @@ export const userController = {
     }
   },
 
-  async changePassword(req: AuthRequest, res: Response, next: NextFunction) {
+  async changePassword(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const { oldPassword, newPassword } = req.body
       if (!oldPassword || !newPassword) {
-        return res.status(400).json({ message: 'Old password and new password are required' })
+        res.status(400).json({ message: 'Old password and new password are required' })
+        return
       }
       if (newPassword.length < 8) {
-        return res.status(400).json({ message: 'New password must be at least 8 characters long' })
+        res.status(400).json({ message: 'New password must be at least 8 characters long' })
+        return
       }
       const result = await userService.changePassword(req.userId!, oldPassword, newPassword)
       res.json(result)

@@ -20,7 +20,8 @@ export interface LoginData {
 
 export const authService = {
   async register(data: RegisterData) {
-    const { firstName, lastName, email, username, password, otp } = data
+    const { firstName, lastName, email, username, password } = data
+    // otp is used below for verification
 
     // Check if user exists
     const existingUser = await prisma.user.findFirst({

@@ -23,12 +23,13 @@ export const tagController = {
    * Accepts: { name: string }
    * Returns: { id: string, name: string, canonicalName: string }
    */
-  async createOrFindTag(req: AuthRequest, res: Response, next: NextFunction) {
+  async createOrFindTag(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const { name } = req.body
 
       if (!name || typeof name !== 'string') {
-        return res.status(400).json({ message: 'Tag name is required' })
+        res.status(400).json({ message: 'Tag name is required' })
+        return
       }
 
       const tag = await tagService.createOrFindTag(name)
@@ -41,13 +42,14 @@ export const tagController = {
   /**
    * GET /tags/:id - Get tag by ID
    */
-  async getTagById(req: AuthRequest, res: Response, next: NextFunction) {
+  async getTagById(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const { id } = req.params
       const tag = await tagService.getTagById(id)
 
       if (!tag) {
-        return res.status(404).json({ message: 'Tag not found' })
+        res.status(404).json({ message: 'Tag not found' })
+        return
       }
 
       res.json(tag)

@@ -11,8 +11,8 @@ export const donationService = {
       isRecurring,
       isAnonymous,
       message,
-      name,
-      email,
+      name: _name,
+      email: _email,
     } = data
 
     // Verify event exists
@@ -71,7 +71,7 @@ export const donationService = {
     if (event.organizationId !== userId) {
       const donorName = isAnonymous 
         ? 'An anonymous donor' 
-        : (name || (donor ? `${donor.firstName} ${donor.lastName}`.trim() || donor.username : 'Someone'))
+        : (_name || (donor ? `${donor.firstName} ${donor.lastName}`.trim() || donor.username : 'Someone'))
       
       await createNotification({
         userId: event.organizationId,

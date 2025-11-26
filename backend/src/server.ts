@@ -1,4 +1,4 @@
-import express, { Express, Request, Response, NextFunction } from 'express'
+import express, { Express, Request, Response } from 'express'
 import cors from 'cors'
 import path from 'path'
 import { config } from './config/env'
@@ -37,7 +37,7 @@ app.use(express.urlencoded({ extended: true }))
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')))
 
 // Health check
-app.get('/health', (req: Request, res: Response) => {
+app.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() })
 })
 
@@ -58,7 +58,7 @@ app.use('/api/tags', tagRoutes)
 app.use('/api/payments', paymentRoutes)
 
 // 404 handler
-app.use((req: Request, res: Response) => {
+app.use((_req: Request, res: Response) => {
   res.status(404).json({ message: 'Route not found' })
 })
 
@@ -66,10 +66,11 @@ app.use((req: Request, res: Response) => {
 app.use(errorHandler)
 
 // Start server
-const PORT = config.port
+// Railway and other platforms set PORT automatically - use that or fallback to config
+const PORT = process.env.PORT || config.port
 
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`)
+  console.log(`🚀 Server running on port ${PORT}`)
   console.log(`📡 API available at http://localhost:${PORT}/api`)
   console.log(`🌍 Environment: ${config.nodeEnv}`)
 })

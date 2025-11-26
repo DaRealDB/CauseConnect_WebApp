@@ -1,8 +1,6 @@
 import prisma from '../config/database'
-import { createError } from '../middleware/errorHandler'
 import { eventService } from './event.service'
 import { postService } from './post.service'
-import { squadService } from './squad.service'
 
 export type ExploreFilter = 'all' | 'groups' | 'posts' | 'events'
 

@@ -1,5 +1,5 @@
 import prisma from '../config/database'
-import { hashPassword } from '../utils/password'
+// import { hashPassword } from '../utils/password' // Unused import
 import { createError } from '../middleware/errorHandler'
 import { createNotification } from '../utils/notifications'
 import path from 'path'

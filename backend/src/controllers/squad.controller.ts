@@ -15,11 +15,12 @@ export const squadController = {
     }
   },
 
-  async searchSquads(req: AuthRequest, res: Response, next: NextFunction) {
+  async searchSquads(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const { query, limit } = req.query
       if (!query || typeof query !== 'string') {
-        return res.status(400).json({ message: 'Query parameter is required' })
+        res.status(400).json({ message: 'Query parameter is required' })
+        return
       }
       const searchLimit = limit ? parseInt(limit as string) : 10
       const squads = await squadService.searchSquads(query, searchLimit)
@@ -111,7 +112,7 @@ export const squadController = {
 
   async updateSquadPost(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      const { id, postId } = req.params
+      const { id: _id, postId } = req.params
       const post = await squadPostService.updateSquadPost(postId, req.userId!, {
         content: req.body.content,
       })
@@ -123,7 +124,7 @@ export const squadController = {
 
   async deleteSquadPost(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      const { id, postId } = req.params
+      const { id: _id, postId } = req.params
       await squadPostService.deleteSquadPost(postId, req.userId!)
       res.json({ message: 'Post deleted successfully' })
     } catch (error: any) {
@@ -133,7 +134,7 @@ export const squadController = {
 
   async pinSquadPost(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      const { id, postId } = req.params
+      const { id: _id, postId } = req.params
       const { isPinned } = req.body
       await squadPostService.pinSquadPost(postId, req.userId!, isPinned)
       res.json({ message: isPinned ? 'Post pinned' : 'Post unpinned' })
@@ -145,7 +146,7 @@ export const squadController = {
   // Squad Comments
   async getSquadPostComments(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      const { id, postId } = req.params
+      const { id: _id, postId } = req.params
       const page = parseInt(req.query.page as string) || 1
       const limit = parseInt(req.query.limit as string) || 50
       const result = await squadCommentService.getSquadPostComments(postId, req.userId, page, limit)
@@ -157,7 +158,7 @@ export const squadController = {
 
   async createSquadComment(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      const { id, postId } = req.params
+      const { id: _id, postId } = req.params
       const comment = await squadCommentService.createSquadComment(postId, req.userId!, {
         content: req.body.content,
         parentId: req.body.parentId,
@@ -170,7 +171,7 @@ export const squadController = {
 
   async updateSquadComment(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      const { id, postId, commentId } = req.params
+      const { id: _id, postId: _postId, commentId } = req.params
       const comment = await squadCommentService.updateSquadComment(commentId, req.userId!, {
         content: req.body.content,
       })
@@ -182,7 +183,7 @@ export const squadController = {
 
   async deleteSquadComment(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      const { id, postId, commentId } = req.params
+      const { id: _id, postId: _postId, commentId } = req.params
       await squadCommentService.deleteSquadComment(commentId, req.userId!)
       res.json({ message: 'Comment deleted successfully' })
     } catch (error: any) {
@@ -193,7 +194,7 @@ export const squadController = {
   // Squad Reactions
   async toggleSquadReaction(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      const { id } = req.params
+      const { id: _id } = req.params
       const result = await squadReactionService.toggleReaction(req.userId!, {
         postId: req.body.postId,
         commentId: req.body.commentId,

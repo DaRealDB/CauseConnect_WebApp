@@ -85,7 +85,7 @@ export const postController = {
         } catch {
           // If parsing fails, try as comma-separated string
           tags = typeof req.body.tags === 'string' 
-            ? req.body.tags.split(',').map(t => t.trim()).filter(Boolean)
+            ? req.body.tags.split(',').map((t: string) => t.trim()).filter(Boolean)
             : Array.isArray(req.body.tags) ? req.body.tags : []
         }
       }

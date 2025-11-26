@@ -1,4 +1,3 @@
-import crypto from 'crypto'
 import { hashPassword, comparePassword } from './password'
 
 /**

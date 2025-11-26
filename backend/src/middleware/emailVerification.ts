@@ -1,7 +1,6 @@
 import { Response, NextFunction } from 'express'
 import { AuthRequest } from './auth'
 import prisma from '../config/database'
-import { createError } from './errorHandler'
 
 /**
  * Middleware to ensure user has verified their email
