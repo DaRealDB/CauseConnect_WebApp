@@ -27,6 +27,9 @@ app.use(cors({
   credentials: true,
 }))
 
+// Stripe webhook needs raw body for signature verification
+app.use('/api/payments/webhook', express.raw({ type: 'application/json' }))
+
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
 
@@ -51,6 +54,7 @@ app.use('/api/notifications', notificationRoutes)
 app.use('/api/custom-feeds', customFeedRoutes)
 app.use('/api/explore', exploreRoutes)
 app.use('/api/tags', tagRoutes)
+// Stripe webhook needs raw body, so we handle it separately
 app.use('/api/payments', paymentRoutes)
 
 // 404 handler

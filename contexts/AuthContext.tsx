@@ -79,6 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     email: string
     password: string
     confirmPassword: string
+    otp?: string
   }) => {
     const response = await authService.register(data)
     setUser(response.user)

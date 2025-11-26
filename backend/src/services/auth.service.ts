@@ -2,6 +2,7 @@ import prisma from '../config/database'
 import { hashPassword, comparePassword } from '../utils/password'
 import { generateAccessToken, generateRefreshToken, verifyRefreshToken } from '../utils/jwt'
 import { createError } from '../middleware/errorHandler'
+import { verificationService } from './verification.service'
 
 export interface RegisterData {
   firstName: string
@@ -9,6 +10,7 @@ export interface RegisterData {
   email: string
   username: string
   password: string
+  otp?: string // OTP for email verification
 }
 
 export interface LoginData {
@@ -18,7 +20,7 @@ export interface LoginData {
 
 export const authService = {
   async register(data: RegisterData) {
-    const { firstName, lastName, email, username, password } = data
+    const { firstName, lastName, email, username, password, otp } = data
 
     // Check if user exists
     const existingUser = await prisma.user.findFirst({
@@ -40,7 +42,31 @@ export const authService = {
     // Hash password
     const hashedPassword = await hashPassword(password)
 
-    // Create user
+    // Check if email was verified (either via OTP in request or previously verified)
+    let isVerified = false
+    
+    if (data.otp) {
+      // Verify OTP if provided
+      isVerified = await verificationService.verifyEmail(email, data.otp)
+    } else {
+      // Check if email was previously verified
+      const verification = await prisma.verification.findFirst({
+        where: {
+          email,
+          type: 'email_verification',
+          verified: true,
+          expiresAt: { gt: new Date() }, // Still valid (within 30 minutes)
+        },
+        orderBy: { createdAt: 'desc' },
+      })
+      isVerified = !!verification
+    }
+
+    if (!isVerified) {
+      throw createError('Email verification required. Please verify your email first.', 400)
+    }
+
+    // Create user with emailVerified = true
     const user = await prisma.user.create({
       data: {
         firstName,
@@ -48,6 +74,7 @@ export const authService = {
         email,
         username,
         password: hashedPassword,
+        emailVerified: true, // Email is verified at this point
       },
       select: {
         id: true,

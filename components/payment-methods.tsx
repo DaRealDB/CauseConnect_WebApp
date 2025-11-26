@@ -213,27 +213,17 @@ export function PaymentMethods({ onUpdate }: PaymentMethodsProps) {
                 className="flex items-center justify-between p-4 border border-border rounded-lg"
               >
                 <div className="flex items-center gap-3">
-                  {method.provider === 'stripe' && method.type === 'card' ? (
-                    <div className="w-10 h-6 bg-primary rounded flex items-center justify-center">
-                      <span className="text-xs font-bold text-primary-foreground">
-                        {method.cardBrand?.toUpperCase().slice(0, 4) || 'CARD'}
-                      </span>
-                    </div>
-                  ) : (
-                    <div className="w-10 h-6 bg-blue-600 rounded flex items-center justify-center">
-                      <span className="text-xs font-bold text-white">PP</span>
-                    </div>
-                  )}
+                  <div className="w-10 h-6 bg-primary rounded flex items-center justify-center">
+                    <span className="text-xs font-bold text-primary-foreground">
+                      {method.cardBrand?.toUpperCase().slice(0, 4) || 'CARD'}
+                    </span>
+                  </div>
                   <div>
                     <p className="font-medium">
-                      {method.provider === 'stripe' && method.type === 'card'
-                        ? formatCardNumber(method.cardLast4)
-                        : method.paypalEmail || 'PayPal Account'}
+                      {formatCardNumber(method.cardLast4)}
                     </p>
                     <p className="text-sm text-muted-foreground">
-                      {method.provider === 'stripe' && method.type === 'card'
-                        ? formatExpiry(method.cardExpMonth, method.cardExpYear)
-                        : 'PayPal'}
+                      {formatExpiry(method.cardExpMonth, method.cardExpYear)}
                     </p>
                   </div>
                 </div>
@@ -293,7 +283,7 @@ export function PaymentMethods({ onUpdate }: PaymentMethodsProps) {
             onClick={() => setShowAddPayPalDialog(true)}
           >
             <Plus className="w-4 h-4 mr-2" />
-            Add PayPal Account
+            Add PayPal Account (Demo)
           </Button>
         </div>
 
@@ -343,13 +333,13 @@ export function PaymentMethods({ onUpdate }: PaymentMethodsProps) {
           </DialogContent>
         </Dialog>
 
-        {/* Add PayPal Dialog */}
+        {/* Add PayPal Dialog (Simulation Only) */}
         <Dialog open={showAddPayPalDialog} onOpenChange={setShowAddPayPalDialog}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Add PayPal Account</DialogTitle>
+              <DialogTitle>Add PayPal Account (Demo Only)</DialogTitle>
               <DialogDescription>
-                Enter your PayPal email address to add it as a payment method
+                This is a simulation for demonstration purposes. No real PayPal account verification is performed.
               </DialogDescription>
             </DialogHeader>
             <AddPayPalForm
@@ -383,7 +373,7 @@ function AddPayPalForm({ onSuccess, onCancel }: { onSuccess: () => void; onCance
 
     try {
       await paymentService.addPayPalPaymentMethod(paypalEmail, false)
-      toast.success('PayPal account added successfully!')
+      toast.success('PayPal account added successfully! (Demo mode)')
       onSuccess()
     } catch (error: any) {
       toast.error(error.message || 'Failed to add PayPal account')
@@ -394,6 +384,11 @@ function AddPayPalForm({ onSuccess, onCancel }: { onSuccess: () => void; onCance
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+        <p className="text-xs text-blue-800 dark:text-blue-200">
+          <strong>Demo Mode:</strong> This PayPal payment method is for demonstration only. No real PayPal account verification is performed.
+        </p>
+      </div>
       <div>
         <label htmlFor="paypalEmail" className="block text-sm font-medium mb-2">
           PayPal Email Address
@@ -420,4 +415,5 @@ function AddPayPalForm({ onSuccess, onCancel }: { onSuccess: () => void; onCance
     </form>
   )
 }
+
 

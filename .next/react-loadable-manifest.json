@@ -1,1 +1,6 @@
-{}
+{
+  "app/register/page.tsx -> @/lib/api/services": {
+    "id": "app/register/page.tsx -> @/lib/api/services",
+    "files": []
+  }
+}

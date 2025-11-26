@@ -1,6 +1,8 @@
-import { Response, NextFunction } from 'express'
+import { Response, NextFunction, Request } from 'express'
 import { AuthRequest } from '../middleware/auth'
 import { paymentService } from '../services/payment.service'
+import { stripe } from '../config/stripe'
+import { config } from '../config/env'
 
 export const paymentController = {
   // ==================== PAYMENT METHODS ====================
@@ -86,14 +88,21 @@ export const paymentController = {
 
   async createPaymentIntent(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      const { eventId, amount, currency, paymentMethodId, isAnonymous, message } = req.body
+      const { eventId, postId, recipientUserId, amount, currency, paymentMethodId, isAnonymous, message } = req.body
 
-      if (!eventId || !amount) {
-        return res.status(400).json({ message: 'eventId and amount are required' })
+      if (!amount) {
+        return res.status(400).json({ message: 'amount is required' })
+      }
+
+      // At least one of eventId, postId, or recipientUserId must be provided
+      if (!eventId && !postId && !recipientUserId) {
+        return res.status(400).json({ message: 'eventId, postId, or recipientUserId is required' })
       }
 
       const result = await paymentService.createStripePaymentIntent(req.userId!, {
         eventId,
+        postId,
+        recipientUserId,
         amount: parseFloat(amount),
         currency,
         paymentMethodId,
@@ -108,15 +117,34 @@ export const paymentController = {
 
   async confirmPayment(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      const { paymentIntentId, eventId, amount, paymentMethodId, isAnonymous, message } = req.body
+      const { paymentIntentId } = req.body
 
-      if (!paymentIntentId || !eventId || !amount) {
-        return res.status(400).json({ message: 'paymentIntentId, eventId, and amount are required' })
+      if (!paymentIntentId) {
+        return res.status(400).json({ message: 'paymentIntentId is required' })
       }
 
-      const result = await paymentService.confirmStripePayment(req.userId!, paymentIntentId, {
+      const result = await paymentService.confirmStripePayment(req.userId!, paymentIntentId)
+      res.json(result)
+    } catch (error: any) {
+      next(error)
+    }
+  },
+
+  async simulatePayPalPayment(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const { eventId, postId, recipientUserId, amount, currency, paymentMethodId, isAnonymous, message } = req.body
+      if (!eventId && !postId && !recipientUserId) {
+        return res.status(400).json({ message: 'eventId, postId, or recipientUserId is required' })
+      }
+      if (!amount) {
+        return res.status(400).json({ message: 'eventId and amount are required' })
+      }
+      const result = await paymentService.simulatePayPalPayment(req.userId!, {
         eventId,
+        postId,
+        recipientUserId,
         amount: parseFloat(amount),
+        currency,
         paymentMethodId,
         isAnonymous,
         message,
@@ -127,54 +155,25 @@ export const paymentController = {
     }
   },
 
-  async createPayPalOrder(req: AuthRequest, res: Response, next: NextFunction) {
-    try {
-      const { eventId, amount, currency, isAnonymous, message } = req.body
-
-      if (!eventId || !amount) {
-        return res.status(400).json({ message: 'eventId and amount are required' })
-      }
-
-      const result = await paymentService.createPayPalOrder(req.userId!, {
-        eventId,
-        amount: parseFloat(amount),
-        currency,
-        isAnonymous,
-        message,
-      })
-      res.json(result)
-    } catch (error: any) {
-      next(error)
-    }
-  },
-
-  async capturePayPalPayment(req: AuthRequest, res: Response, next: NextFunction) {
-    try {
-      const { orderId } = req.body
-
-      if (!orderId) {
-        return res.status(400).json({ message: 'orderId is required' })
-      }
-
-      const result = await paymentService.capturePayPalPayment(req.userId!, orderId)
-      res.json(result)
-    } catch (error: any) {
-      next(error)
-    }
-  },
-
   // ==================== RECURRING DONATIONS ====================
 
   async createRecurringDonation(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      const { eventId, amount, currency, interval, paymentMethodId, isAnonymous, message } = req.body
+      const { eventId, postId, recipientUserId, amount, currency, interval, paymentMethodId, isAnonymous, message } = req.body
 
-      if (!eventId || !amount) {
-        return res.status(400).json({ message: 'eventId and amount are required' })
+      if (!amount) {
+        return res.status(400).json({ message: 'amount is required' })
+      }
+
+      // At least one of eventId, postId, or recipientUserId must be provided
+      if (!eventId && !postId && !recipientUserId) {
+        return res.status(400).json({ message: 'eventId, postId, or recipientUserId is required' })
       }
 
       const result = await paymentService.createRecurringDonation(req.userId!, {
         eventId,
+        postId,
+        recipientUserId,
         amount: parseFloat(amount),
         currency,
         interval,
@@ -190,8 +189,8 @@ export const paymentController = {
 
   async getRecurringDonations(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      const recurring = await paymentService.getRecurringDonations(req.userId!)
-      res.json(recurring)
+      const donations = await paymentService.getRecurringDonations(req.userId!)
+      res.json(donations)
     } catch (error: any) {
       next(error)
     }
@@ -214,14 +213,76 @@ export const paymentController = {
       const page = parseInt(req.query.page as string) || 1
       const limit = parseInt(req.query.limit as string) || 20
 
-      const history = await paymentService.getDonationHistory(req.userId!, {
-        page,
-        limit,
-      })
-      res.json(history)
+      const result = await paymentService.getDonationHistory(req.userId!, { page, limit })
+      res.json(result)
     } catch (error: any) {
       next(error)
     }
   },
-}
 
+  // ==================== STRIPE WEBHOOK ====================
+
+  /**
+   * Stripe webhook handler for payment events
+   * This endpoint syncs payment status from Stripe to our database
+   */
+  async handleStripeWebhook(req: Request, res: Response, next: NextFunction) {
+    const sig = req.headers['stripe-signature']
+
+    if (!stripe || !sig) {
+      return res.status(400).send('Webhook signature missing or Stripe not configured')
+    }
+
+    let event
+
+    try {
+      const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
+      if (!webhookSecret) {
+        console.error('[Stripe Webhook] STRIPE_WEBHOOK_SECRET not configured')
+        return res.status(400).send('Webhook secret not configured')
+      }
+
+      event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret)
+    } catch (err: any) {
+      console.error('[Stripe Webhook] Signature verification failed:', err.message)
+      return res.status(400).send(`Webhook Error: ${err.message}`)
+    }
+
+    console.log('[Stripe Webhook] Received event:', event.type)
+
+    try {
+      // Handle different event types
+      switch (event.type) {
+        case 'payment_intent.succeeded':
+          await paymentService.handlePaymentIntentSucceeded(event.data.object)
+          break
+
+        case 'payment_intent.payment_failed':
+          await paymentService.handlePaymentIntentFailed(event.data.object)
+          break
+
+        case 'charge.refunded':
+          await paymentService.handleChargeRefunded(event.data.object)
+          break
+
+        case 'customer.subscription.created':
+        case 'customer.subscription.updated':
+          await paymentService.handleSubscriptionUpdated(event.data.object)
+          break
+
+        case 'customer.subscription.deleted':
+          await paymentService.handleSubscriptionDeleted(event.data.object)
+          break
+
+        default:
+          console.log(`[Stripe Webhook] Unhandled event type: ${event.type}`)
+      }
+
+      res.json({ received: true })
+    } catch (error: any) {
+      console.error('[Stripe Webhook] Error processing event:', error)
+      // Return 200 to prevent Stripe from retrying
+      res.status(200).json({ received: true, error: error.message })
+    }
+  },
+}

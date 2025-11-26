@@ -12,27 +12,29 @@ datasource db {
 
 // ==================== USER MODEL ====================
 model User {
-  id         String   @id @default(cuid())
-  email      String   @unique
-  username   String   @unique
-  firstName  String
-  lastName   String
-  password   String
-  avatar     String?
-  coverImage String?
-  bio        String?
-  location   String?
-  website    String?
-  verified   Boolean  @default(false)
+  id               String   @id @default(cuid())
+  email            String   @unique
+  username         String   @unique
+  firstName        String
+  lastName         String
+  password         String
+  avatar           String?
+  coverImage       String?
+  bio              String?
+  location         String?
+  website          String?
+  verified         Boolean  @default(false)
+  emailVerified    Boolean  @default(false) // Email verification status
   stripeCustomerId String? // Stripe Customer ID for payment processing
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   // Relations
   events             Event[]             @relation("EventOrganization")
   posts              Post[]
   comments           Comment[]
   donations          Donation[]
+  receivedDonations  Donation[]        @relation("DonationRecipient")
   notifications      Notification[]
   refreshTokens      RefreshToken[]
   settings           UserSettings?
@@ -73,6 +75,20 @@ model RefreshToken {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("refresh_tokens")
+}
+
+// ==================== VERIFICATION MODEL ====================
+model Verification {
+  id        String   @id @default(cuid())
+  email     String
+  otpHash   String   // Hashed OTP code
+  type      String   @default("email_verification") // email_verification, password_reset
+  verified  Boolean  @default(false) // True if OTP was successfully verified
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([email, type])
+  @@map("verifications")
 }
 
 // ==================== EVENT MODEL ====================
@@ -181,6 +197,7 @@ model Post {
   likes        Like[]
   bookmarks    Bookmark[]
   participants PostParticipant[]
+  donations    Donation[]
 
   @@map("posts")
 }
@@ -249,7 +266,9 @@ model Donation {
   transactionId String?  @unique
   status        String   @default("pending") // pending, completed, failed, refunded
   userId        String
-  eventId       String
+  eventId       String?
+  postId        String? // Optional: for post donations
+  recipientUserId String? // Optional: for creator/profile donations
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -261,7 +280,9 @@ model Donation {
 
   // Relations
   user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  event             Event              @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  event             Event?             @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  post              Post?              @relation(fields: [postId], references: [id], onDelete: Cascade)
+  recipient         User?              @relation("DonationRecipient", fields: [recipientUserId], references: [id], onDelete: Cascade)
   paypalTransaction PayPalTransaction?
   recurringDonation RecurringDonation? @relation(fields: [recurringDonationId], references: [id], onDelete: SetNull)
 

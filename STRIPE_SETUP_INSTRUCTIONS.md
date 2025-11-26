@@ -71,3 +71,6 @@ Use any future expiry date (e.g., 12/34) and any 3-digit CVC (e.g., 123).
 
 For production, use live keys (starting with `pk_live_` and `sk_live_`) and set `PAYPAL_ENVIRONMENT=live` in your backend `.env`.
 
+
+
+

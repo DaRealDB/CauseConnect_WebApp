@@ -11,25 +11,176 @@ import { Textarea } from "@/components/ui/textarea"
 import { Checkbox } from "@/components/ui/checkbox"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Label } from "@/components/ui/label"
-import { Heart, Shield, CreditCard, Banknote, Smartphone, ArrowLeft } from "lucide-react"
+import { Heart, Shield, CreditCard, Banknote, Smartphone, ArrowLeft, CheckCircle } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
 import { useRouter, useParams } from "next/navigation"
-import { eventService, donationService } from "@/lib/api/services"
+import { eventService, paymentService } from "@/lib/api/services"
 import { toast } from "sonner"
 import { useCurrency } from "@/contexts/CurrencyContext"
+import { useAuth } from "@/contexts/AuthContext"
+import type { PaymentMethod } from "@/lib/api/types"
+import { loadStripe, StripeElementsOptions } from "@stripe/stripe-js"
+import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js"
+
+const STRIPE_PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || ''
+const stripePromise = STRIPE_PUBLISHABLE_KEY ? loadStripe(STRIPE_PUBLISHABLE_KEY) : null
+
+// Stripe Payment Form Component
+function StripePaymentForm({ 
+  eventId, 
+  amount, 
+  paymentMethodId, 
+  isAnonymous, 
+  message, 
+  onSuccess, 
+  onCancel 
+}: { 
+  eventId: string
+  amount: number
+  paymentMethodId?: string
+  isAnonymous: boolean
+  message?: string
+  onSuccess: () => void
+  onCancel: () => void
+}) {
+  const stripe = useStripe()
+  const elements = useElements()
+  const [isProcessing, setIsProcessing] = useState(false)
+  const [paymentIntentId, setPaymentIntentId] = useState<string | null>(null)
+  const [clientSecret, setClientSecret] = useState<string | null>(null)
+
+  useEffect(() => {
+    const createPaymentIntent = async () => {
+      try {
+        const result = await paymentService.createPaymentIntent({
+          eventId,
+          amount,
+          paymentMethodId,
+          isAnonymous,
+          message,
+        })
+        setPaymentIntentId(result.paymentIntentId)
+        setClientSecret(result.clientSecret)
+      } catch (error: any) {
+        toast.error(error.message || "Failed to initialize payment")
+        onCancel()
+      }
+    }
+    if (amount > 0) {
+      createPaymentIntent()
+    }
+  }, [eventId, amount, paymentMethodId, isAnonymous, message, onCancel])
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    if (!stripe || !clientSecret) {
+      return
+    }
+
+    setIsProcessing(true)
+
+    try {
+      // If using saved payment method, confirm directly without elements
+      if (paymentMethodId) {
+        const { error } = await stripe.confirmPayment({
+          clientSecret,
+          confirmParams: {
+            return_url: typeof window !== 'undefined' 
+              ? `${window.location.origin}/donate/success?eventId=${eventId}&amount=${amount}`
+              : undefined,
+          },
+          redirect: 'if_required',
+        })
+
+        if (error) {
+          toast.error(error.message || "Payment failed")
+          setIsProcessing(false)
+          return
+        }
+
+        // Payment succeeded
+        toast.success("Donation processed successfully!")
+        onSuccess()
+      } else if (elements) {
+        // Using new payment method
+        const { error: submitError } = await elements.submit()
+        if (submitError) {
+          toast.error(submitError.message || "Please check your payment details")
+          setIsProcessing(false)
+          return
+        }
+
+        const { error } = await stripe.confirmPayment({
+          elements,
+          clientSecret,
+          confirmParams: {
+            return_url: typeof window !== 'undefined' 
+              ? `${window.location.origin}/donate/success?eventId=${eventId}&amount=${amount}`
+              : undefined,
+          },
+          redirect: 'if_required',
+        })
+
+        if (error) {
+          toast.error(error.message || "Payment failed")
+          setIsProcessing(false)
+          return
+        }
+
+        // Payment succeeded
+        toast.success("Donation processed successfully!")
+        onSuccess()
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Failed to process donation")
+      setIsProcessing(false)
+    }
+  }
+
+  if (!clientSecret) {
+    return <div className="p-4 text-center">Initializing payment...</div>
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      {!paymentMethodId && elements && <PaymentElement />}
+      {paymentMethodId && (
+        <div className="p-4 bg-muted rounded-lg">
+          <p className="text-sm text-muted-foreground">
+            Using saved payment method. Click confirm to proceed.
+          </p>
+        </div>
+      )}
+      <div className="flex gap-2">
+        <Button type="button" variant="outline" onClick={onCancel} disabled={isProcessing} className="flex-1">
+          Cancel
+        </Button>
+        <Button type="submit" disabled={!stripe || isProcessing} className="flex-1">
+          {isProcessing ? "Processing..." : `Confirm Donation ${amount.toFixed(2)}`}
+        </Button>
+      </div>
+    </form>
+  )
+}
 
 export default function DonatePage() {
   const router = useRouter()
   const params = useParams()
   const eventId = params.eventId as string
   const { formatAmountSimple, getSymbol } = useCurrency()
+  const { isAuthenticated, user } = useAuth()
   const [amount, setAmount] = useState("")
   const [customAmount, setCustomAmount] = useState("")
-  const [paymentMethod, setPaymentMethod] = useState("card")
+  const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState<string | null>(null)
+  const [paymentMethodType, setPaymentMethodType] = useState<"card" | "paypal" | "new_card">("card")
   const [isRecurring, setIsRecurring] = useState(false)
   const [isAnonymous, setIsAnonymous] = useState(false)
   const [message, setMessage] = useState("")
-  const [email, setEmail] = useState("")
-  const [name, setName] = useState("")
+  const [showStripeForm, setShowStripeForm] = useState(false)
+  const [savedPaymentMethods, setSavedPaymentMethods] = useState<PaymentMethod[]>([])
+  const [isLoadingPaymentMethods, setIsLoadingPaymentMethods] = useState(false)
+  const [isProcessing, setIsProcessing] = useState(false)
 
   const suggestedAmounts = ["10", "25", "50", "100", "250", "500"]
 
@@ -49,7 +200,12 @@ export default function DonatePage() {
     if (eventId) {
       loadEvent()
     }
-  }, [eventId])
+    if (isAuthenticated) {
+      loadPaymentMethods()
+    }
+    
+  }, [eventId, isAuthenticated])
+
 
   const loadEvent = async () => {
     try {
@@ -69,6 +225,25 @@ export default function DonatePage() {
       toast.error(error.message || "Failed to load event")
     } finally {
       setIsLoadingEvent(false)
+    }
+  }
+
+  const loadPaymentMethods = async () => {
+    try {
+      setIsLoadingPaymentMethods(true)
+      const methods = await paymentService.getPaymentMethods()
+      setSavedPaymentMethods(methods)
+      // Set default payment method if available
+      const defaultMethod = methods.find(m => m.isDefault)
+      if (defaultMethod) {
+        setSelectedPaymentMethodId(defaultMethod.id)
+        setPaymentMethodType(defaultMethod.provider === 'paypal' ? 'paypal' : 'card')
+      }
+    } catch (error: any) {
+      console.error("Failed to load payment methods:", error)
+      // Don't show error toast - user can still donate without saved methods
+    } finally {
+      setIsLoadingPaymentMethods(false)
     }
   }
 
@@ -100,32 +275,75 @@ export default function DonatePage() {
     return customAmount || amount
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleDonateClick = async () => {
     const donationAmount = getCurrentAmount()
     if (!donationAmount || Number.parseFloat(donationAmount) <= 0) {
       toast.error("Please enter a valid donation amount")
       return
     }
 
-    try {
-      await donationService.createDonation({
-        eventId: eventId,
-        amount: Number.parseFloat(donationAmount),
-        paymentMethod: paymentMethod as "card" | "paypal" | "apple",
-        isRecurring,
-        isAnonymous,
-        message: message || undefined,
-        email,
-        name: isAnonymous ? undefined : name,
-      })
+    const amountNum = Number.parseFloat(donationAmount)
 
-      toast.success("Donation processed successfully!")
-      router.push(`/donate/success?amount=${donationAmount}&event=${encodeURIComponent(event.title)}`)
-    } catch (error: any) {
-      toast.error(error.message || "Failed to process donation. Please try again.")
+    // Handle recurring donations
+    if (isRecurring) {
+      try {
+        await paymentService.createRecurringDonation({
+          eventId,
+          amount: amountNum,
+          interval: 'month',
+          paymentMethodId: selectedPaymentMethodId || undefined,
+          isAnonymous,
+          message: message || undefined,
+        })
+        toast.success("Recurring donation created successfully!")
+        router.push(`/donate/success?amount=${donationAmount}&event=${encodeURIComponent(event?.title || '')}&recurring=true`)
+      } catch (error: any) {
+        toast.error(error.message || "Failed to create recurring donation")
+      }
+      return
     }
+
+    // Handle PayPal payments (simulated - for demonstration only)
+    if (paymentMethodType === 'paypal') {
+      try {
+        setIsProcessing(true)
+        await paymentService.simulatePayPalPayment({
+          eventId,
+          amount: amountNum,
+          currency: 'USD',
+          paymentMethodId: selectedPaymentMethodId || undefined,
+          isAnonymous,
+          message: message || undefined,
+        })
+        toast.success("Donation processed successfully! (PayPal simulation)")
+        router.push(`/donate/success?amount=${donationAmount}&event=${encodeURIComponent(event?.title || '')}`)
+      } catch (error: any) {
+        toast.error(error.message || "Failed to process PayPal payment")
+      } finally {
+        setIsProcessing(false)
+      }
+      return
+    }
+
+    // Handle Stripe card payments - show Stripe form
+    if (paymentMethodType === 'card' || paymentMethodType === 'new_card') {
+      setShowStripeForm(true)
+      return
+    }
+
+    toast.error("Please select a payment method")
   }
+
+  const handleDonationSuccess = () => {
+    router.push(`/donate/success?amount=${getCurrentAmount()}&event=${encodeURIComponent(event?.title || '')}`)
+  }
+
+  const formatCardNumber = (last4?: string) => {
+    return last4 ? `•••• •••• •••• ${last4}` : "•••• •••• •••• ••••"
+  }
+
+  const savedCards = savedPaymentMethods.filter(m => m.provider === 'stripe' && m.type === 'card')
+  const savedPayPal = savedPaymentMethods.filter(m => m.provider === 'paypal')
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-orange-50/30 to-peach-50/30">
@@ -211,7 +429,7 @@ export default function DonatePage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <form onSubmit={handleSubmit} className="space-y-6">
+                <div className="space-y-6">
                   {/* Amount Selection */}
                   <div>
                     <Label className="text-base font-medium mb-4 block">Choose Amount</Label>
@@ -255,56 +473,162 @@ export default function DonatePage() {
                   {/* Payment Method */}
                   <div>
                     <Label className="text-base font-medium mb-4 block">Payment Method</Label>
-                    <RadioGroup value={paymentMethod} onValueChange={setPaymentMethod}>
-                      <div className="flex items-center space-x-2">
-                        <RadioGroupItem value="card" id="card" />
-                        <Label htmlFor="card" className="flex items-center gap-2">
-                          <CreditCard className="h-4 w-4" />
-                          Credit/Debit Card
-                        </Label>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <RadioGroupItem value="paypal" id="paypal" />
-                        <Label htmlFor="paypal" className="flex items-center gap-2">
-                          <Banknote className="h-4 w-4" />
-                          PayPal
-                        </Label>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <RadioGroupItem value="apple" id="apple" />
-                        <Label htmlFor="apple" className="flex items-center gap-2">
-                          <Smartphone className="h-4 w-4" />
-                          Apple Pay
-                        </Label>
-                      </div>
-                    </RadioGroup>
+                    
+                    {/* Saved Payment Methods */}
+                    {isLoadingPaymentMethods ? (
+                      <div className="text-sm text-muted-foreground mb-4">Loading payment methods...</div>
+                    ) : (
+                      <RadioGroup 
+                        value={selectedPaymentMethodId || paymentMethodType} 
+                        onValueChange={(value) => {
+                          if (value === 'new_card' || value === 'paypal') {
+                            setSelectedPaymentMethodId(null)
+                            setPaymentMethodType(value)
+                          } else {
+                            // It's a payment method ID
+                            const method = [...savedCards, ...savedPayPal].find(m => m.id === value)
+                            if (method) {
+                              setSelectedPaymentMethodId(method.id)
+                              setPaymentMethodType(method.provider === 'paypal' ? 'paypal' : 'card')
+                            }
+                          }
+                        }}
+                        className="space-y-3 mb-4"
+                      >
+                        {/* Saved Cards */}
+                        {savedCards.length > 0 && (
+                          <div>
+                            <Label className="text-sm font-medium mb-2 block text-muted-foreground">Saved Cards</Label>
+                            {savedCards.map((method) => (
+                              <div
+                                key={method.id}
+                                className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-colors ${
+                                  selectedPaymentMethodId === method.id && paymentMethodType === 'card'
+                                    ? 'border-primary bg-primary/5'
+                                    : 'border-border hover:border-primary/50'
+                                }`}
+                                onClick={() => {
+                                  setSelectedPaymentMethodId(method.id)
+                                  setPaymentMethodType('card')
+                                }}
+                              >
+                                <div className="flex items-center gap-3">
+                                  <RadioGroupItem
+                                    value={method.id}
+                                    id={`card-${method.id}`}
+                                  />
+                                  <CreditCard className="h-4 w-4" />
+                                  <div>
+                                    <div className="font-medium">{formatCardNumber(method.cardLast4)}</div>
+                                    <div className="text-xs text-muted-foreground">
+                                      {method.cardBrand?.toUpperCase()} • Expires {String(method.cardExpMonth).padStart(2, '0')}/{String(method.cardExpYear).slice(-2)}
+                                    </div>
+                                  </div>
+                                </div>
+                                {method.isDefault && (
+                                  <Badge variant="secondary" className="text-xs">Default</Badge>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Saved PayPal */}
+                        {savedPayPal.length > 0 && (
+                          <div>
+                            <Label className="text-sm font-medium mb-2 block text-muted-foreground">Saved PayPal (Demo)</Label>
+                            {savedPayPal.map((method) => (
+                              <div
+                                key={method.id}
+                                className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-colors ${
+                                  selectedPaymentMethodId === method.id && paymentMethodType === 'paypal'
+                                    ? 'border-primary bg-primary/5'
+                                    : 'border-border hover:border-primary/50'
+                                }`}
+                                onClick={() => {
+                                  setSelectedPaymentMethodId(method.id)
+                                  setPaymentMethodType('paypal')
+                                }}
+                              >
+                                <div className="flex items-center gap-3">
+                                  <RadioGroupItem
+                                    value={method.id}
+                                    id={`paypal-${method.id}`}
+                                  />
+                                  <Banknote className="h-4 w-4" />
+                                  <div>
+                                    <div className="font-medium">{method.paypalEmail || 'PayPal Account'}</div>
+                                    <div className="text-xs text-muted-foreground">PayPal (Demo)</div>
+                                  </div>
+                                </div>
+                                {method.isDefault && (
+                                  <Badge variant="secondary" className="text-xs">Default</Badge>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Add New Payment Method Options */}
+                        <div className="pt-2 border-t">
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem 
+                              value="new_card" 
+                              id="new_card"
+                            />
+                            <Label htmlFor="new_card" className="flex items-center gap-2 cursor-pointer">
+                              <CreditCard className="h-4 w-4" />
+                              Use a new card
+                            </Label>
+                          </div>
+                          {savedPayPal.length === 0 && (
+                            <div className="flex items-center space-x-2 mt-2">
+                              <RadioGroupItem 
+                                value="paypal" 
+                                id="paypal_new"
+                              />
+                              <Label htmlFor="paypal_new" className="flex items-center gap-2 cursor-pointer">
+                                <Banknote className="h-4 w-4" />
+                                PayPal (Demo)
+                              </Label>
+                            </div>
+                          )}
+                        </div>
+                      </RadioGroup>
+                    )}
                   </div>
 
-                  {/* Personal Information */}
-                  <div className="space-y-4">
-                    <div>
-                      <Label htmlFor="name">Full Name</Label>
-                      <Input
-                        id="name"
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        placeholder="Your full name"
-                        required={!isAnonymous}
-                        disabled={isAnonymous}
-                      />
+                  {/* Personal Information - Only show if not using saved payment method or not logged in */}
+                  {(!isAuthenticated || selectedPaymentMethodId) && (
+                    <div className="space-y-4">
+                      {!isAuthenticated && (
+                        <>
+                          <div>
+                            <Label htmlFor="name">Full Name</Label>
+                            <Input
+                              id="name"
+                              value={name}
+                              onChange={(e) => setName(e.target.value)}
+                              placeholder="Your full name"
+                              required={!isAnonymous}
+                              disabled={isAnonymous}
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="email">Email Address</Label>
+                            <Input
+                              id="email"
+                              type="email"
+                              value={email}
+                              onChange={(e) => setEmail(e.target.value)}
+                              placeholder="your@email.com"
+                              required
+                            />
+                          </div>
+                        </>
+                      )}
                     </div>
-                    <div>
-                      <Label htmlFor="email">Email Address</Label>
-                      <Input
-                        id="email"
-                        type="email"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        placeholder="your@email.com"
-                        required
-                      />
-                    </div>
-                  </div>
+                  )}
 
                   {/* Anonymous Donation */}
                   <div className="flex items-center space-x-2">
@@ -340,7 +664,8 @@ export default function DonatePage() {
 
                   {/* Submit */}
                   <Button
-                    type="submit"
+                    type="button"
+                    onClick={handleDonateClick}
                     className="w-full h-12 text-lg"
                     disabled={!getCurrentAmount() || Number.parseFloat(getCurrentAmount()) <= 0}
                   >
@@ -352,7 +677,38 @@ export default function DonatePage() {
                     By donating, you agree to our Terms of Service and Privacy Policy. Your donation is secure and
                     encrypted.
                   </div>
-                </form>
+                </div>
+
+                {/* Stripe Payment Form Dialog */}
+                {showStripeForm && stripePromise && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+                    <Card className="w-full max-w-md m-4">
+                      <CardHeader>
+                        <CardTitle>Complete Payment</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <Elements
+                          stripe={stripePromise}
+                          options={{
+                            mode: 'payment',
+                            amount: Math.round(Number.parseFloat(getCurrentAmount()) * 100),
+                            currency: 'usd',
+                          }}
+                        >
+                          <StripePaymentForm
+                            eventId={eventId}
+                            amount={Number.parseFloat(getCurrentAmount())}
+                            paymentMethodId={paymentMethodType === 'card' ? selectedPaymentMethodId || undefined : undefined}
+                            isAnonymous={isAnonymous}
+                            message={message || undefined}
+                            onSuccess={handleDonationSuccess}
+                            onCancel={() => setShowStripeForm(false)}
+                          />
+                        </Elements>
+                      </CardContent>
+                    </Card>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>

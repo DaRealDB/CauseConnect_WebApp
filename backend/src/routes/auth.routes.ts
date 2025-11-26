@@ -28,11 +28,16 @@ const loginValidation = [
 ]
 
 // Routes
+router.post('/send-verification', authController.sendVerificationCode)
+router.post('/verify-email', authController.verifyEmail)
 router.post('/register', registerValidation, authController.register)
 router.post('/login', loginValidation, authController.login)
 router.get('/me', requireAuth, authController.getCurrentUser)
 router.post('/refresh', authController.refreshToken)
 router.post('/logout', authController.logout)
+router.post('/forgot-password', authController.forgotPassword)
+router.post('/verify-reset', authController.verifyResetCode)
+router.post('/reset-password', authController.resetPassword)
 
 export default router
 

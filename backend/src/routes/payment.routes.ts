@@ -15,8 +15,7 @@ router.delete('/payment-methods/:paymentMethodId', requireAuth, paymentControlle
 // Single Donations
 router.post('/payment-intent', requireAuth, paymentController.createPaymentIntent)
 router.post('/confirm-payment', requireAuth, paymentController.confirmPayment)
-router.post('/paypal/order', requireAuth, paymentController.createPayPalOrder)
-router.post('/paypal/capture', requireAuth, paymentController.capturePayPalPayment)
+router.post('/paypal/simulate', requireAuth, paymentController.simulatePayPalPayment)
 
 // Recurring Donations
 router.post('/recurring', requireAuth, paymentController.createRecurringDonation)
@@ -25,6 +24,9 @@ router.delete('/recurring/:recurringDonationId', requireAuth, paymentController.
 
 // Donation History
 router.get('/history', requireAuth, paymentController.getDonationHistory)
+
+// Stripe Webhook (no auth required, uses signature verification)
+router.post('/webhook', paymentController.handleStripeWebhook)
 
 export default router
 

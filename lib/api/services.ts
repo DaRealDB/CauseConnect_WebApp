@@ -37,7 +37,6 @@ import type {
   PaymentMethod,
   SetupIntentResponse,
   PaymentIntentResponse,
-  PayPalOrderResponse,
   RecurringDonation,
   DonationHistoryItem,
 } from './types'
@@ -86,6 +85,46 @@ export const authService = {
     const response = await apiClient.post<{ token: string }>('/auth/refresh')
     apiClient.setToken(response.token)
     return response
+  },
+
+  /**
+   * Send verification code to email
+   */
+  async sendVerificationCode(email: string, type: 'email_verification' | 'password_reset' = 'email_verification'): Promise<{ success: boolean; message: string }> {
+    return apiClient.post<{ success: boolean; message: string }>('/auth/send-verification', { email, type })
+  },
+
+  /**
+   * Verify email with OTP code
+   */
+  async verifyEmail(email: string, otp: string): Promise<{ success: boolean; message: string }> {
+    return apiClient.post<{ success: boolean; message: string }>('/auth/verify-email', { email, otp })
+  },
+
+  /**
+   * Send password reset code
+   */
+  async sendPasswordResetCode(email: string): Promise<{ success: boolean; message: string }> {
+    return apiClient.post<{ success: boolean; message: string }>('/auth/forgot-password', { email })
+  },
+
+  /**
+   * Verify password reset code
+   */
+  async verifyPasswordResetCode(email: string, otp: string): Promise<{ success: boolean; message: string }> {
+    return apiClient.post<{ success: boolean; message: string }>('/auth/verify-reset', { email, otp })
+  },
+
+  /**
+   * Reset password after verification
+   */
+  async resetPassword(email: string, otp: string, newPassword: string, confirmPassword: string): Promise<{ success: boolean; message: string }> {
+    return apiClient.post<{ success: boolean; message: string }>('/auth/reset-password', {
+      email,
+      otp,
+      newPassword,
+      confirmPassword,
+    })
   },
 }
 
@@ -974,8 +1013,9 @@ export const paymentService = {
     return apiClient.put(`/payments/payment-methods/${paymentMethodId}/default`)
   },
 
+
   /**
-   * Add PayPal payment method
+   * Add simulated PayPal payment method (for demonstration purposes only)
    */
   async addPayPalPaymentMethod(paypalEmail: string, isDefault: boolean = false): Promise<PaymentMethod> {
     return apiClient.post<PaymentMethod>('/payments/payment-methods/paypal', {
@@ -1020,24 +1060,19 @@ export const paymentService = {
   },
 
   /**
-   * Create PayPal order for donation
+   * Simulate PayPal payment (for demonstration purposes only - no actual PayPal API call)
    */
-  async createPayPalOrder(data: {
+  async simulatePayPalPayment(data: {
     eventId: string
     amount: number
     currency?: string
+    paymentMethodId?: string
     isAnonymous?: boolean
     message?: string
-  }): Promise<PayPalOrderResponse> {
-    return apiClient.post<PayPalOrderResponse>('/payments/paypal/order', data)
+  }): Promise<CreateDonationResponse> {
+    return apiClient.post<CreateDonationResponse>('/payments/paypal/simulate', data)
   },
 
-  /**
-   * Capture PayPal payment
-   */
-  async capturePayPalPayment(orderId: string): Promise<CreateDonationResponse> {
-    return apiClient.post<CreateDonationResponse>('/payments/paypal/capture', { orderId })
-  },
 
   /**
    * Create recurring donation (subscription)

@@ -243,3 +243,6 @@ For issues:
 3. Test with Stripe/PayPal test credentials
 4. Verify environment variables are set correctly
 
+
+
+

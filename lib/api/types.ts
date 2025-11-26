@@ -74,6 +74,7 @@ export interface RegisterRequest {
   email: string
   password: string
   confirmPassword: string
+  otp?: string // OTP for email verification
 }
 
 export interface RegisterResponse {
@@ -213,7 +214,7 @@ export interface Donation {
 export interface CreateDonationRequest {
   eventId: string | number
   amount: number
-  paymentMethod: 'card' | 'paypal' | 'apple'
+  paymentMethod: 'card' | 'apple'
   isRecurring: boolean
   isAnonymous: boolean
   message?: string
@@ -236,8 +237,8 @@ export interface PaymentMethod {
   cardLast4?: string
   cardExpMonth?: number
   cardExpYear?: number
-  paypalEmail?: string
   stripePaymentMethodId?: string
+  paypalEmail?: string
   createdAt: string
 }
 
@@ -249,12 +250,6 @@ export interface SetupIntentResponse {
 export interface PaymentIntentResponse {
   clientSecret: string
   paymentIntentId: string
-}
-
-export interface PayPalOrderResponse {
-  orderId: string
-  approvalUrl: string
-  donationId: string
 }
 
 export interface RecurringDonation {

@@ -27,6 +27,9 @@ export default function RegisterPage() {
   })
   const router = useRouter()
   const { register } = useAuth()
+  const [showVerification, setShowVerification] = useState(false)
+  const [otp, setOtp] = useState(['', '', '', '', '', ''])
+  const [isSendingCode, setIsSendingCode] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -54,16 +57,75 @@ export default function RegisterPage() {
       return
     }
 
+    // Validate email
+    if (!formData.email || !formData.email.includes('@')) {
+      toast.error("Please enter a valid email address")
+      return
+    }
+
+    // Send verification code first
+    setIsSendingCode(true)
+    try {
+      const { authService } = await import('@/lib/api/services')
+      await authService.sendVerificationCode(formData.email, 'email_verification')
+      toast.success("Verification code sent! Please check your email.")
+      setShowVerification(true)
+    } catch (error: any) {
+      toast.error(error.message || "Failed to send verification code. Please try again.")
+    } finally {
+      setIsSendingCode(false)
+    }
+  }
+
+  const handleVerifyAndRegister = async () => {
+    const otpCode = otp.join('')
+    if (otpCode.length !== 6) {
+      toast.error("Please enter all 6 digits")
+      return
+    }
+
     setIsLoading(true)
 
     try {
-      await register(formData)
+      // Verify email first
+      const { authService } = await import('@/lib/api/services')
+      await authService.verifyEmail(formData.email, otpCode)
+      
+      // Now register with OTP
+      await register({ ...formData, otp: otpCode })
       toast.success("Account created successfully!")
       router.push("/onboarding/welcome")
     } catch (error: any) {
       toast.error(error.message || "Failed to create account. Please try again.")
+      setOtp(['', '', '', '', '', ''])
+      document.getElementById('otp-0')?.focus()
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const handleOtpChange = (index: number, value: string) => {
+    if (value.length > 1) return
+    if (!/^\d*$/.test(value)) return
+
+    const newOtp = [...otp]
+    newOtp[index] = value
+    setOtp(newOtp)
+
+    if (value && index < 5) {
+      const nextInput = document.getElementById(`otp-${index + 1}`)
+      nextInput?.focus()
+    }
+
+    if (newOtp.every(digit => digit !== '') && newOtp.length === 6) {
+      handleVerifyAndRegister()
+    }
+  }
+
+  const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace' && !otp[index] && index > 0) {
+      const prevInput = document.getElementById(`otp-${index - 1}`)
+      prevInput?.focus()
     }
   }
 
@@ -188,9 +250,53 @@ export default function RegisterPage() {
                   </Button>
                 </div>
               </div>
-              <Button type="submit" className="w-full" disabled={isLoading}>
-                {isLoading ? "Creating account..." : "Create Account"}
-              </Button>
+              {!showVerification ? (
+                <Button type="submit" className="w-full" disabled={isSendingCode}>
+                  {isSendingCode ? "Sending verification code..." : "Send Verification Code"}
+                </Button>
+              ) : (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Enter Verification Code</Label>
+                    <div className="flex gap-2 justify-center">
+                      {otp.map((digit, index) => (
+                        <Input
+                          key={index}
+                          id={`otp-${index}`}
+                          type="text"
+                          inputMode="numeric"
+                          maxLength={1}
+                          value={digit}
+                          onChange={(e) => handleOtpChange(index, e.target.value)}
+                          onKeyDown={(e) => handleKeyDown(index, e)}
+                          className="w-12 h-14 text-center text-2xl font-bold"
+                          autoFocus={index === 0}
+                          disabled={isLoading}
+                        />
+                      ))}
+                    </div>
+                    <p className="text-xs text-muted-foreground text-center">
+                      We've sent a 6-digit code to {formData.email}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    onClick={handleVerifyAndRegister}
+                    className="w-full"
+                    disabled={isLoading || otp.some(d => d === '')}
+                  >
+                    {isLoading ? "Creating account..." : "Verify & Create Account"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setShowVerification(false)}
+                    className="w-full"
+                  >
+                    Back
+                  </Button>
+                </div>
+              )}
             </form>
             <div className="mt-6 text-center">
               <p className="text-sm text-muted-foreground">

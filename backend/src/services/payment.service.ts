@@ -1,35 +1,7 @@
 import prisma from '../config/database'
 import { createError } from '../middleware/errorHandler'
 import { stripe } from '../config/stripe'
-import { PAYPAL_BASE_URL } from '../config/paypal'
 import { createNotification } from '../utils/notifications'
-
-// PayPal API Helper
-async function getPayPalAccessToken(): Promise<string> {
-  const clientId = process.env.PAYPAL_CLIENT_ID
-  const clientSecret = process.env.PAYPAL_CLIENT_SECRET
-
-  if (!clientId || !clientSecret) {
-    throw createError('PayPal credentials not configured', 500)
-  }
-
-  const auth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64')
-  const response = await fetch(`${PAYPAL_BASE_URL}/v1/oauth2/token`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Basic ${auth}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: 'grant_type=client_credentials',
-  })
-
-  if (!response.ok) {
-    throw createError('Failed to get PayPal access token', 500)
-  }
-
-  const data = await response.json()
-  return data.access_token
-}
 
 // Audit log helper
 async function logPaymentAction(
@@ -387,7 +359,9 @@ export const paymentService = {
    * Create Stripe Payment Intent for donation
    */
   async createStripePaymentIntent(userId: string, data: {
-    eventId: string
+    eventId?: string
+    postId?: string
+    recipientUserId?: string
     amount: number
     currency?: string
     paymentMethodId?: string
@@ -398,16 +372,59 @@ export const paymentService = {
       throw createError('Stripe is not configured', 500)
     }
 
+    // At least one of eventId, postId, or recipientUserId must be provided
+    if (!data.eventId && !data.postId && !data.recipientUserId) {
+      throw createError('eventId, postId, or recipientUserId is required', 400)
+    }
+
     try {
       // Get or create Stripe customer
       const customerId = await this.getOrCreateStripeCustomer(userId)
 
-      const event = await prisma.event.findUnique({
-        where: { id: data.eventId },
-      })
+      let description = 'Donation'
+      const metadata: Record<string, string> = {
+        userId,
+        isAnonymous: data.isAnonymous ? 'true' : 'false',
+      }
 
-      if (!event) {
-        throw createError('Event not found', 404)
+      // Handle event donations
+      if (data.eventId) {
+        const event = await prisma.event.findUnique({
+          where: { id: data.eventId },
+        })
+        if (!event) {
+          throw createError('Event not found', 404)
+        }
+        description = `Donation to ${event.title}`
+        metadata.eventId = data.eventId
+        metadata.eventTitle = event.title
+      }
+
+      // Handle post donations
+      if (data.postId) {
+        const post = await prisma.post.findUnique({
+          where: { id: data.postId },
+          include: { user: { select: { username: true } } },
+        })
+        if (!post) {
+          throw createError('Post not found', 404)
+        }
+        description = `Donation on post by @${post.user.username}`
+        metadata.postId = data.postId
+      }
+
+      // Handle creator/profile donations
+      if (data.recipientUserId) {
+        const recipient = await prisma.user.findUnique({
+          where: { id: data.recipientUserId },
+          select: { username: true, firstName: true, lastName: true },
+        })
+        if (!recipient) {
+          throw createError('Recipient not found', 404)
+        }
+        const recipientName = `${recipient.firstName} ${recipient.lastName}`.trim() || recipient.username
+        description = `Donation to ${recipientName}`
+        metadata.recipientUserId = data.recipientUserId
       }
 
       // Create payment intent
@@ -415,15 +432,10 @@ export const paymentService = {
         amount: Math.round(data.amount * 100), // Convert to cents
         currency: (data.currency || 'usd').toLowerCase(),
         customer: customerId,
-        metadata: {
-          userId,
-          eventId: data.eventId,
-          eventTitle: event.title,
-          isAnonymous: data.isAnonymous ? 'true' : 'false',
-        },
+        metadata,
         ...(data.paymentMethodId && { payment_method: data.paymentMethodId }),
         ...(data.paymentMethodId && { confirm: false }),
-        description: `Donation to ${event.title}`,
+        description,
       })
 
       await logPaymentAction(
@@ -433,7 +445,11 @@ export const paymentService = {
         data.amount,
         data.currency || 'USD',
         paymentIntent.id,
-        { eventId: data.eventId }
+        { 
+          eventId: data.eventId,
+          postId: data.postId,
+          recipientUserId: data.recipientUserId,
+        }
       )
 
       return {
@@ -441,7 +457,11 @@ export const paymentService = {
         paymentIntentId: paymentIntent.id,
       }
     } catch (error: any) {
-      await logPaymentAction(userId, 'payment_intent_failed', 'stripe', data.amount, data.currency, undefined, { eventId: data.eventId }, error.message)
+      await logPaymentAction(userId, 'payment_intent_failed', 'stripe', data.amount, data.currency, undefined, { 
+        eventId: data.eventId,
+        postId: data.postId,
+        recipientUserId: data.recipientUserId,
+      }, error.message)
       throw createError(error.message || 'Failed to create payment intent', 500)
     }
   },
@@ -449,61 +469,80 @@ export const paymentService = {
   /**
    * Confirm Stripe payment and create donation
    */
-  async confirmStripePayment(userId: string, paymentIntentId: string, data: {
-    eventId: string
-    amount: number
-    paymentMethodId?: string
-    isAnonymous?: boolean
-    message?: string
-  }) {
+  async confirmStripePayment(userId: string, paymentIntentId: string) {
     if (!stripe) {
       throw createError('Stripe is not configured', 500)
     }
 
     try {
-      // Retrieve payment intent to verify status
+      // Retrieve payment intent to verify status and get metadata
       const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId)
 
       if (paymentIntent.status !== 'succeeded') {
         throw createError(`Payment not succeeded. Status: ${paymentIntent.status}`, 400)
       }
 
+      // Extract donation details from payment intent metadata
+      const metadata = paymentIntent.metadata || {}
+      const eventId = metadata.eventId
+      const postId = metadata.postId
+      const recipientUserId = metadata.recipientUserId
+      const isAnonymous = metadata.isAnonymous === 'true'
+      const amount = paymentIntent.amount / 100 // Convert from cents
+
+      // At least one recipient must be specified
+      if (!eventId && !postId && !recipientUserId) {
+        throw createError('Invalid payment intent: missing recipient information', 400)
+      }
+
       // Create donation record
       const donation = await prisma.donation.create({
         data: {
           userId,
-          eventId: data.eventId,
-          amount: data.amount,
+          eventId: eventId || null,
+          postId: postId || null,
+          recipientUserId: recipientUserId || null,
+          amount,
           paymentMethod: 'stripe',
           isRecurring: false,
-          isAnonymous: data.isAnonymous || false,
-          message: data.message || null,
+          isAnonymous,
           status: 'completed',
           transactionId: paymentIntent.id,
           stripePaymentIntentId: paymentIntent.id,
-          paymentMethodId: data.paymentMethodId || null,
         },
         include: {
-          event: {
+          event: eventId ? {
             select: {
               title: true,
               organizationId: true,
             },
-          },
+          } : false,
+          post: postId ? {
+            select: {
+              user: {
+                select: {
+                  id: true,
+                  username: true,
+                },
+              },
+            },
+          } : false,
         },
       })
 
-      // Update event raised amount
-      await prisma.event.update({
-        where: { id: data.eventId },
-        data: {
-          raisedAmount: {
-            increment: data.amount,
+      // Update event raised amount if it's an event donation
+      if (eventId && donation.event) {
+        await prisma.event.update({
+          where: { id: eventId },
+          data: {
+            raisedAmount: {
+              increment: amount,
+            },
           },
-        },
-      })
+        })
+      }
 
-      // Create notification for event organizer
+      // Create notification for recipient
       const donor = await prisma.user.findUnique({
         where: { id: userId },
         select: {
@@ -513,18 +552,41 @@ export const paymentService = {
         },
       })
 
-      if (donation.event.organizationId !== userId) {
-        const donorName = data.isAnonymous
+      let recipientId: string | undefined
+      let notificationTitle = 'New Donation Received'
+      let notificationMessage = ''
+      let actionUrl = ''
+
+      if (eventId && donation.event) {
+        recipientId = donation.event.organizationId
+        actionUrl = `/event/${eventId}`
+        notificationMessage = `${donor ? `${donor.firstName} ${donor.lastName}`.trim() || donor.username : 'Someone'} donated $${amount.toFixed(2)} to your event "${donation.event.title}"`
+      } else if (postId && donation.post) {
+        recipientId = donation.post.user.id
+        actionUrl = `/post/${postId}`
+        notificationMessage = `${donor ? `${donor.firstName} ${donor.lastName}`.trim() || donor.username : 'Someone'} donated $${amount.toFixed(2)} on your post`
+      } else if (recipientUserId) {
+        recipientId = recipientUserId
+        const recipient = await prisma.user.findUnique({
+          where: { id: recipientUserId },
+          select: { username: true },
+        })
+        actionUrl = `/profile/${recipient?.username || ''}`
+        notificationMessage = `${donor ? `${donor.firstName} ${donor.lastName}`.trim() || donor.username : 'Someone'} donated $${amount.toFixed(2)} to you`
+      }
+
+      if (recipientId && recipientId !== userId) {
+        const donorName = isAnonymous
           ? 'An anonymous donor'
           : (donor ? `${donor.firstName} ${donor.lastName}`.trim() || donor.username : 'Someone')
 
         await createNotification({
-          userId: donation.event.organizationId,
+          userId: recipientId,
           type: 'donation',
-          title: 'New Donation Received',
-          message: `${donorName} donated $${data.amount.toFixed(2)} to your event "${donation.event.title}"`,
-          amount: data.amount,
-          actionUrl: `/event/${data.eventId}`,
+          title: notificationTitle,
+          message: notificationMessage,
+          amount,
+          actionUrl,
         })
       }
 
@@ -532,24 +594,24 @@ export const paymentService = {
         userId,
         'donation_completed',
         'stripe',
-        data.amount,
+        amount,
         'USD',
         paymentIntent.id,
-        { donationId: donation.id, eventId: data.eventId }
+        { donationId: donation.id, eventId, postId, recipientUserId }
       )
 
-      // Save payment method if provided and not already saved
-      if (data.paymentMethodId) {
+      // Save payment method if attached to payment intent
+      if (paymentIntent.payment_method && typeof paymentIntent.payment_method === 'string') {
         const existingMethod = await prisma.userPaymentMethod.findFirst({
           where: {
             userId,
-            stripePaymentMethodId: data.paymentMethodId,
+            stripePaymentMethodId: paymentIntent.payment_method,
           },
         })
 
         if (!existingMethod) {
           try {
-            const paymentMethod = await stripe.paymentMethods.retrieve(data.paymentMethodId)
+            const paymentMethod = await stripe.paymentMethods.retrieve(paymentIntent.payment_method as string)
             if (paymentMethod.card) {
               await prisma.userPaymentMethod.create({
                 data: {
@@ -588,10 +650,10 @@ export const paymentService = {
         userId,
         'donation_failed',
         'stripe',
-        data.amount,
+        undefined,
         'USD',
         paymentIntentId,
-        { eventId: data.eventId },
+        undefined,
         error.message
       )
       throw createError(error.message || 'Failed to confirm payment', 500)
@@ -599,253 +661,156 @@ export const paymentService = {
   },
 
   /**
-   * Create PayPal order for donation
+   * Simulate PayPal payment (for demonstration purposes)
    */
-  async createPayPalOrder(userId: string, data: {
-    eventId: string
+  async simulatePayPalPayment(userId: string, data: {
+    eventId?: string
+    postId?: string
+    recipientUserId?: string
     amount: number
     currency?: string
+    paymentMethodId?: string
     isAnonymous?: boolean
     message?: string
   }) {
+    // At least one of eventId, postId, or recipientUserId must be provided
+    if (!data.eventId && !data.postId && !data.recipientUserId) {
+      throw createError('eventId, postId, or recipientUserId is required', 400)
+    }
+
     try {
-      const accessToken = await getPayPalAccessToken()
+      let title = 'Donation'
+      let recipientId: string | undefined
 
-      const event = await prisma.event.findUnique({
-        where: { id: data.eventId },
-      })
+      // Handle event donations
+      if (data.eventId) {
+        const event = await prisma.event.findUnique({
+          where: { id: data.eventId },
+          select: { title: true, organizationId: true },
+        })
+        if (!event) {
+          throw createError('Event not found', 404)
+        }
+        title = event.title
+        recipientId = event.organizationId
 
-      if (!event) {
-        throw createError('Event not found', 404)
-      }
-
-      const orderData = {
-        intent: 'CAPTURE',
-        purchase_units: [
-          {
-            reference_id: data.eventId,
-            description: `Donation to ${event.title}`,
-            amount: {
-              currency_code: (data.currency || 'USD').toUpperCase(),
-              value: data.amount.toFixed(2),
+        // Update event raised amount
+        await prisma.event.update({
+          where: { id: data.eventId },
+          data: {
+            raisedAmount: {
+              increment: data.amount,
             },
           },
-        ],
-        application_context: {
-          brand_name: 'CauseConnect',
-          landing_page: 'NO_PREFERENCE',
-          user_action: 'PAY_NOW',
-          return_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/donate/${data.eventId}/success`,
-          cancel_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/donate/${data.eventId}`,
-        },
+        })
       }
 
-      const response = await fetch(`${PAYPAL_BASE_URL}/v2/checkout/orders`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`,
-          'PayPal-Request-Id': `order_${Date.now()}_${userId}`,
-        },
-        body: JSON.stringify(orderData),
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw createError(errorData.message || 'Failed to create PayPal order', 500)
+      // Handle post donations
+      if (data.postId) {
+        const post = await prisma.post.findUnique({
+          where: { id: data.postId },
+          include: { user: { select: { username: true, id: true } } },
+        })
+        if (!post) {
+          throw createError('Post not found', 404)
+        }
+        title = `Post by @${post.user.username}`
+        recipientId = post.user.id
       }
 
-      const order = await response.json()
+      // Handle creator/profile donations
+      if (data.recipientUserId) {
+        const recipient = await prisma.user.findUnique({
+          where: { id: data.recipientUserId },
+          select: { username: true, firstName: true, lastName: true },
+        })
+        if (!recipient) {
+          throw createError('Recipient not found', 404)
+        }
+        const recipientName = `${recipient.firstName} ${recipient.lastName}`.trim() || recipient.username
+        title = recipientName
+        recipientId = data.recipientUserId
+      }
 
-      // Create pending donation record
+      // Create donation record directly (simulation)
       const donation = await prisma.donation.create({
         data: {
           userId,
-          eventId: data.eventId,
+          eventId: data.eventId || null,
+          postId: data.postId || null,
+          recipientUserId: data.recipientUserId || null,
           amount: data.amount,
           paymentMethod: 'paypal',
           isRecurring: false,
           isAnonymous: data.isAnonymous || false,
           message: data.message || null,
-          status: 'pending',
-          paypalOrderId: order.id,
-        },
-      })
-
-      await logPaymentAction(
-        userId,
-        'paypal_order_created',
-        'paypal',
-        data.amount,
-        data.currency || 'USD',
-        order.id,
-        { donationId: donation.id, eventId: data.eventId }
-      )
-
-      return {
-        orderId: order.id,
-        approvalUrl: order.links?.find((link: any) => link.rel === 'approve')?.href,
-        donationId: donation.id,
-      }
-    } catch (error: any) {
-      await logPaymentAction(
-        userId,
-        'paypal_order_failed',
-        'paypal',
-        data.amount,
-        data.currency,
-        undefined,
-        { eventId: data.eventId },
-        error.message
-      )
-      throw createError(error.message || 'Failed to create PayPal order', 500)
-    }
-  },
-
-  /**
-   * Capture PayPal payment and complete donation
-   */
-  async capturePayPalPayment(userId: string, orderId: string) {
-    try {
-      const accessToken = await getPayPalAccessToken()
-
-      // Capture the order
-      const captureResponse = await fetch(`${PAYPAL_BASE_URL}/v2/checkout/orders/${orderId}/capture`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`,
-        },
-      })
-
-      if (!captureResponse.ok) {
-        const errorData = await captureResponse.json()
-        throw createError(errorData.message || 'Failed to capture PayPal payment', 500)
-      }
-
-      const captureData = await captureResponse.json()
-
-      if (captureData.status !== 'COMPLETED') {
-        throw createError(`Payment not completed. Status: ${captureData.status}`, 400)
-      }
-
-      // Find the pending donation
-      const donation = await prisma.donation.findFirst({
-        where: {
-          paypalOrderId: orderId,
-          userId,
-          status: 'pending',
+          status: 'completed', // Immediately completed for simulation
+          transactionId: `paypal_sim_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          paymentMethodId: data.paymentMethodId || null,
         },
         include: {
-          event: {
-            select: {
-              title: true,
-              organizationId: true,
-            },
+          event: data.eventId ? { select: { title: true, organizationId: true } } : false,
+        },
+      })
+
+      // Create notification for recipient (if different from donor)
+      if (recipientId && recipientId !== userId) {
+        const donor = await prisma.user.findUnique({
+          where: { id: userId },
+          select: {
+            firstName: true,
+            lastName: true,
+            username: true,
           },
-        },
-      })
+        })
 
-      if (!donation) {
-        throw createError('Donation not found', 404)
-      }
-
-      const purchaseUnit = captureData.purchase_units?.[0]
-      const capture = purchaseUnit?.payments?.captures?.[0]
-
-      // Update donation status
-      const updatedDonation = await prisma.donation.update({
-        where: { id: donation.id },
-        data: {
-          status: 'completed',
-          transactionId: capture?.id || orderId,
-        },
-      })
-
-      // Create PayPal transaction record
-      await prisma.paypalTransaction.create({
-        data: {
-          donationId: donation.id,
-          paypalOrderId: orderId,
-          paypalCaptureId: capture?.id || null,
-          status: captureData.status,
-          payerEmail: captureData.payer?.email_address,
-          payerName: captureData.payer?.name?.given_name
-            ? `${captureData.payer.name.given_name} ${captureData.payer.name.surname || ''}`.trim()
-            : null,
-          amount: donation.amount,
-          currency: purchaseUnit?.amount?.currency_code || 'USD',
-        },
-      })
-
-      // Update event raised amount
-      await prisma.event.update({
-        where: { id: donation.eventId },
-        data: {
-          raisedAmount: {
-            increment: donation.amount,
-          },
-        },
-      })
-
-      // Create notification for event organizer
-      const donor = await prisma.user.findUnique({
-        where: { id: userId },
-        select: {
-          firstName: true,
-          lastName: true,
-          username: true,
-        },
-      })
-
-      if (donation.event.organizationId !== userId) {
-        const donorName = donation.isAnonymous
+        const donorName = data.isAnonymous
           ? 'An anonymous donor'
           : (donor ? `${donor.firstName} ${donor.lastName}`.trim() || donor.username : 'Someone')
 
         await createNotification({
-          userId: donation.event.organizationId,
+          userId: recipientId,
           type: 'donation',
-          title: 'New Donation Received',
-          message: `${donorName} donated $${donation.amount.toFixed(2)} to your event "${donation.event.title}"`,
-          amount: donation.amount,
-          actionUrl: `/event/${donation.eventId}`,
+          title: 'New Donation Received (PayPal Simulation)',
+          message: `${donorName} donated $${data.amount.toFixed(2)} ${data.eventId ? `to your event "${title}"` : data.postId ? `on your post` : `to you`} (Simulated PayPal)`,
+          amount: data.amount,
+          actionUrl: data.eventId ? `/event/${data.eventId}` : data.postId ? `/post/${data.postId}` : `/profile/${recipient?.username || ''}`,
         })
       }
 
       await logPaymentAction(
         userId,
-        'paypal_payment_captured',
+        'donation_completed_simulated',
         'paypal',
-        donation.amount,
-        'USD',
-        orderId,
-        { donationId: donation.id, eventId: donation.eventId }
+        data.amount,
+        data.currency || 'USD',
+        donation.transactionId,
+        { donationId: donation.id, eventId: data.eventId, postId: data.postId, recipientUserId: data.recipientUserId }
       )
 
       return {
         donation: {
-          id: updatedDonation.id,
-          amount: updatedDonation.amount,
-          paymentMethod: updatedDonation.paymentMethod,
-          isAnonymous: updatedDonation.isAnonymous,
-          message: updatedDonation.message,
-          createdAt: updatedDonation.createdAt.toISOString(),
+          id: donation.id,
+          amount: donation.amount,
+          paymentMethod: donation.paymentMethod,
+          isAnonymous: donation.isAnonymous,
+          message: donation.message,
+          createdAt: donation.createdAt.toISOString(),
         },
-        transactionId: updatedDonation.transactionId,
+        transactionId: donation.transactionId,
       }
     } catch (error: any) {
       await logPaymentAction(
         userId,
-        'paypal_capture_failed',
+        'donation_failed_simulated',
         'paypal',
+        data.amount,
+        data.currency,
         undefined,
-        undefined,
-        orderId,
-        undefined,
+        { eventId: data.eventId, postId: data.postId, recipientUserId: data.recipientUserId },
         error.message
       )
-      throw createError(error.message || 'Failed to capture PayPal payment', 500)
+      throw createError(error.message || 'Failed to simulate PayPal payment', 500)
     }
   },
 
@@ -855,7 +820,9 @@ export const paymentService = {
    * Create Stripe subscription for recurring donation
    */
   async createRecurringDonation(userId: string, data: {
-    eventId: string
+    eventId?: string
+    postId?: string
+    recipientUserId?: string
     amount: number
     currency?: string
     interval?: 'month' | 'week' | 'year'
@@ -875,6 +842,11 @@ export const paymentService = {
 
       if (!user) {
         throw createError('User not found', 404)
+      }
+
+      // Recurring donations currently only support events
+      if (!data.eventId) {
+        throw createError('Recurring donations currently only support events. eventId is required.', 400)
       }
 
       const event = await prisma.event.findUnique({
@@ -1140,6 +1112,191 @@ export const paymentService = {
         total,
         totalPages: Math.ceil(total / limit),
       },
+    }
+  },
+
+  // ==================== STRIPE WEBHOOK HANDLERS ====================
+
+  /**
+   * Handle successful payment intent
+   */
+  async handlePaymentIntentSucceeded(paymentIntent: any) {
+    console.log('[Stripe Webhook] PaymentIntent succeeded:', paymentIntent.id)
+
+    try {
+      // Find donation by payment intent ID
+      const donation = await prisma.donation.findFirst({
+        where: { stripePaymentIntentId: paymentIntent.id },
+        include: { event: true, post: true },
+      })
+
+      if (!donation) {
+        console.warn(`[Stripe Webhook] Donation not found for PaymentIntent ${paymentIntent.id}`)
+        return
+      }
+
+      // Update donation status
+      await prisma.donation.update({
+        where: { id: donation.id },
+        data: { status: 'completed' },
+      })
+
+      // Update event raised amount if it's an event donation
+      if (donation.eventId && donation.event) {
+        await prisma.event.update({
+          where: { id: donation.eventId },
+          data: {
+            raisedAmount: {
+              increment: donation.amount,
+            },
+          },
+        })
+      }
+
+      // Log the payment
+      await logPaymentAction(
+        donation.userId,
+        'payment_completed',
+        'stripe',
+        donation.amount,
+        'USD',
+        paymentIntent.id,
+        { donationId: donation.id }
+      )
+
+      console.log(`[Stripe Webhook] Updated donation ${donation.id} to completed`)
+    } catch (error: any) {
+      console.error('[Stripe Webhook] Error handling payment_intent.succeeded:', error)
+      throw error
+    }
+  },
+
+  /**
+   * Handle failed payment intent
+   */
+  async handlePaymentIntentFailed(paymentIntent: any) {
+    console.log('[Stripe Webhook] PaymentIntent failed:', paymentIntent.id)
+
+    try {
+      const donation = await prisma.donation.findFirst({
+        where: { stripePaymentIntentId: paymentIntent.id },
+      })
+
+      if (donation) {
+        await prisma.donation.update({
+          where: { id: donation.id },
+          data: { status: 'failed' },
+        })
+
+        await logPaymentAction(
+          donation.userId,
+          'payment_failed',
+          'stripe',
+          donation.amount,
+          'USD',
+          paymentIntent.id,
+          { donationId: donation.id },
+          paymentIntent.last_payment_error?.message || 'Payment failed'
+        )
+      }
+    } catch (error: any) {
+      console.error('[Stripe Webhook] Error handling payment_intent.payment_failed:', error)
+    }
+  },
+
+  /**
+   * Handle refunded charge
+   */
+  async handleChargeRefunded(charge: any) {
+    console.log('[Stripe Webhook] Charge refunded:', charge.id)
+
+    try {
+      const donation = await prisma.donation.findFirst({
+        where: { transactionId: charge.payment_intent },
+      })
+
+      if (donation) {
+        await prisma.donation.update({
+          where: { id: donation.id },
+          data: { status: 'refunded' },
+        })
+
+        // Decrease event raised amount if applicable
+        if (donation.eventId) {
+          await prisma.event.update({
+            where: { id: donation.eventId },
+            data: {
+              raisedAmount: {
+                decrement: donation.amount,
+              },
+            },
+          })
+        }
+
+        await logPaymentAction(
+          donation.userId,
+          'refund_issued',
+          'stripe',
+          donation.amount,
+          charge.currency,
+          charge.id,
+          { donationId: donation.id, refundId: charge.refunds.data[0]?.id }
+        )
+      }
+    } catch (error: any) {
+      console.error('[Stripe Webhook] Error handling charge.refunded:', error)
+    }
+  },
+
+  /**
+   * Handle subscription created/updated
+   */
+  async handleSubscriptionUpdated(subscription: any) {
+    console.log('[Stripe Webhook] Subscription updated:', subscription.id)
+
+    try {
+      const recurringDonation = await prisma.recurringDonation.findFirst({
+        where: { stripeSubscriptionId: subscription.id },
+      })
+
+      if (recurringDonation) {
+        await prisma.recurringDonation.update({
+          where: { id: recurringDonation.id },
+          data: {
+            status: subscription.status === 'active' ? 'active' : 'canceled',
+            currentPeriodEnd: subscription.current_period_end
+              ? new Date(subscription.current_period_end * 1000)
+              : null,
+          },
+        })
+      }
+    } catch (error: any) {
+      console.error('[Stripe Webhook] Error handling subscription updated:', error)
+    }
+  },
+
+  /**
+   * Handle subscription deleted
+   */
+  async handleSubscriptionDeleted(subscription: any) {
+    console.log('[Stripe Webhook] Subscription deleted:', subscription.id)
+
+    try {
+      const recurringDonation = await prisma.recurringDonation.findFirst({
+        where: { stripeSubscriptionId: subscription.id },
+      })
+
+      if (recurringDonation) {
+        await prisma.recurringDonation.update({
+          where: { id: recurringDonation.id },
+          data: {
+            status: 'canceled',
+            canceledAt: new Date(),
+          },
+        })
+      }
+    } catch (error: any) {
+      console.error('[Stripe Webhook] Error handling subscription deleted:', error)
     }
   },
 }
