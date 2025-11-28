@@ -354,6 +354,12 @@ export interface UserSettings {
       textSize: string
     }
   }
+  community?: {
+    autoJoinSquadEvents: boolean
+    rsvpReminders: boolean
+    allowAwards: boolean
+    showFeedbackButtons: boolean
+  }
 }
 
 // Squad Types

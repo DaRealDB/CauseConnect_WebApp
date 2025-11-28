@@ -635,6 +635,12 @@ model UserSettings {
   interestTags             String[] @default([]) // User's preferred interest tags for feed filtering
   // Volunteering
   availableForVolunteering Boolean  @default(false)
+  preferredVolunteerActivities String[] @default([]) // Preferred volunteer activity types
+  // Community & Engagement
+  autoJoinSquadEvents      Boolean  @default(false) // Automatically join events from squads
+  rsvpReminders            Boolean  @default(true) // Get reminders to RSVP to events
+  allowAwards              Boolean  @default(true) // Allow others to give awards
+  showFeedbackButtons      Boolean  @default(true) // Show like/reaction buttons on posts
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
 

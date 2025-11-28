@@ -33,3 +33,6 @@ The Prisma client has been regenerated and migrations have been applied. **Pleas
 The `emailVerified` field should now work correctly in the middleware.
 
 
+
+
+

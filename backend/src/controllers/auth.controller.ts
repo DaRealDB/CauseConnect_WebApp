@@ -157,12 +157,12 @@ export const authController = {
     }
   },
 
-  async resetPassword(req: Request, res: Response, next: NextFunction) {
+  async resetPassword(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { email, otp, newPassword, confirmPassword } = req.body
 
-      if (!email || !otp || !newPassword) {
-        throw createError('Email, OTP, and new password are required', 400)
+      if (!email || !newPassword) {
+        throw createError('Email and new password are required', 400)
       }
 
       if (newPassword !== confirmPassword) {
@@ -173,7 +173,7 @@ export const authController = {
         throw createError('Password must be at least 8 characters long', 400)
       }
 
-      await passwordResetService.resetPassword(email, otp, newPassword)
+      await passwordResetService.resetPassword(email, otp || '', newPassword)
       res.json({ success: true, message: 'Password reset successfully' })
     } catch (error: any) {
       next(error)

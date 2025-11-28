@@ -114,6 +114,12 @@ export const verificationService = {
       throw createError('Reset code has expired', 400)
     }
 
+    // If already verified, return true (allow reuse for password reset flow)
+    if (verification.verified) {
+      console.log(`[Verification] Password reset code already verified for ${email}`)
+      return true
+    }
+
     // Verify OTP
     const isValid = await compareOTP(otp, verification.otpHash)
     if (!isValid) {

@@ -22,11 +22,13 @@ import Link from "next/link"
 import { 
   eventService, 
   donationService, 
-  userService 
+  userService,
+  settingsService
 } from "@/lib/api/services"
 import type { Event, Donation, User } from "@/lib/api/types"
 import { toast } from "sonner"
 import { useAuth } from "@/contexts/AuthContext"
+import { useCurrency } from "@/contexts/CurrencyContext"
 import { getImageUrl, formatTimestamp } from "@/lib/utils"
 
 export default function MyCausesPage() {
@@ -51,9 +53,44 @@ export default function MyCausesPage() {
   const [bookmarksHasMore, setBookmarksHasMore] = useState(true)
   const [followingHasMore, setFollowingHasMore] = useState(true)
   const [isLoadingSupported, setIsLoadingSupported] = useState(true)
+  
+  // Impact Tracker data
+  const [impactStats, setImpactStats] = useState({
+    totalDonated: 0,
+    causesSupported: 0,
+    donationCount: 0,
+  })
+  const [isLoadingImpactStats, setIsLoadingImpactStats] = useState(false)
+  const [groupedCauses, setGroupedCauses] = useState<Array<{
+    id: string
+    type: 'event' | 'post' | 'recipient'
+    title: string
+    description?: string
+    image?: string
+    organization?: {
+      id: string
+      username: string
+      name: string
+      avatar?: string
+      verified: boolean
+    }
+    totalDonated: number
+    donationCount: number
+    firstDonationDate: string
+    lastDonationDate: string
+    goalAmount?: number
+    raisedAmount?: number
+    location?: string
+    targetDate?: string
+  }>>([])
+  const [isLoadingGroupedCauses, setIsLoadingGroupedCauses] = useState(false)
 
   useEffect(() => {
     if (isAuthenticated && user?.id) {
+      // Load impact stats on mount
+      loadImpactStats()
+      loadGroupedCauses()
+      
       if (activeTab === "created") {
         loadCreatedCauses()
       } else {
@@ -61,6 +98,33 @@ export default function MyCausesPage() {
       }
     }
   }, [isAuthenticated, user, activeTab])
+  
+  const loadImpactStats = async () => {
+    if (!user?.id) return
+    try {
+      setIsLoadingImpactStats(true)
+      const stats = await settingsService.getImpactStats()
+      setImpactStats(stats)
+    } catch (error: any) {
+      console.error("Failed to load impact stats:", error)
+    } finally {
+      setIsLoadingImpactStats(false)
+    }
+  }
+  
+  const loadGroupedCauses = async () => {
+    if (!user?.id) return
+    try {
+      setIsLoadingGroupedCauses(true)
+      const result = await userService.getMyCauses()
+      setGroupedCauses(result.causes)
+    } catch (error: any) {
+      console.error("Failed to load grouped causes:", error)
+      toast.error(error.message || "Failed to load your causes")
+    } finally {
+      setIsLoadingGroupedCauses(false)
+    }
+  }
 
   const loadCreatedCauses = async () => {
     if (!user?.id) return
@@ -187,7 +251,7 @@ export default function MyCausesPage() {
     )
   }
 
-  const totalDonated = donations.reduce((sum, d) => sum + d.amount, 0)
+  const totalDonated = impactStats.totalDonated || donations.reduce((sum, d) => sum + d.amount, 0)
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-secondary/20 to-accent/10">
@@ -203,29 +267,15 @@ export default function MyCausesPage() {
             </p>
           </div>
 
-          {/* Stats Cards */}
+          {/* Impact Tracker Stats Cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-            <Card className="border-0 shadow-lg bg-card/80 backdrop-blur-sm">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground mb-1">Created Events</p>
-                    <p className="text-2xl font-bold text-foreground">
-                      {createdEvents.length}
-                    </p>
-                  </div>
-                  <Target className="w-8 h-8 text-primary" />
-                </div>
-              </CardContent>
-            </Card>
-
             <Card className="border-0 shadow-lg bg-card/80 backdrop-blur-sm">
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-muted-foreground mb-1">Total Donated</p>
                     <p className="text-2xl font-bold text-foreground">
-                      {formatAmountSimple(totalDonated)}
+                      {isLoadingImpactStats ? "..." : formatAmountSimple(impactStats.totalDonated || totalDonated)}
                     </p>
                   </div>
                   <DollarSign className="w-8 h-8 text-primary" />
@@ -237,12 +287,26 @@ export default function MyCausesPage() {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-muted-foreground mb-1">Bookmarked</p>
+                    <p className="text-sm text-muted-foreground mb-1">Causes Supported</p>
                     <p className="text-2xl font-bold text-foreground">
-                      {bookmarkedEvents.length}
+                      {isLoadingImpactStats ? "..." : impactStats.causesSupported || groupedCauses.length}
                     </p>
                   </div>
-                  <Bookmark className="w-8 h-8 text-primary" />
+                  <Heart className="w-8 h-8 text-primary" />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-0 shadow-lg bg-card/80 backdrop-blur-sm">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-muted-foreground mb-1">Created Events</p>
+                    <p className="text-2xl font-bold text-foreground">
+                      {createdEvents.length}
+                    </p>
+                  </div>
+                  <Target className="w-8 h-8 text-primary" />
                 </div>
               </CardContent>
             </Card>
@@ -328,11 +392,143 @@ export default function MyCausesPage() {
 
             {/* Supported Causes Tab */}
             <TabsContent value="supported" className="space-y-8">
+              {/* Impact Tracker - Grouped Causes */}
+              <div>
+                <h2 className="text-xl font-semibold text-foreground mb-4 flex items-center gap-2">
+                  <Heart className="w-5 h-5" />
+                  Impact Overview
+                </h2>
+                
+                {isLoadingGroupedCauses ? (
+                  <Card className="border-0 shadow-lg bg-card/80 backdrop-blur-sm">
+                    <CardContent className="p-12 text-center">
+                      <p className="text-muted-foreground">Loading your impact...</p>
+                    </CardContent>
+                  </Card>
+                ) : groupedCauses.length === 0 ? (
+                  <Card className="border-0 shadow-lg bg-card/80 backdrop-blur-sm">
+                    <CardContent className="p-12 text-center">
+                      <Heart className="w-16 h-16 mx-auto mb-4 text-muted-foreground opacity-50" />
+                      <h3 className="text-lg font-semibold text-foreground mb-2">
+                        No causes supported yet
+                      </h3>
+                      <p className="text-muted-foreground mb-4">
+                        Start making a difference by supporting your first cause!
+                      </p>
+                      <Button asChild>
+                        <Link href="/explore">
+                          Explore Causes
+                        </Link>
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {groupedCauses.map((cause) => (
+                      <Card key={`${cause.type}-${cause.id}`} className="border-0 shadow-lg bg-card/80 backdrop-blur-sm hover:shadow-xl transition-shadow">
+                        <CardHeader>
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-2">
+                                {cause.type === 'event' && <Target className="w-4 h-4 text-primary" />}
+                                {cause.type === 'post' && <Bookmark className="w-4 h-4 text-primary" />}
+                                {cause.type === 'recipient' && <Users className="w-4 h-4 text-primary" />}
+                                <Badge variant={cause.type === 'event' ? 'default' : cause.type === 'post' ? 'secondary' : 'outline'}>
+                                  {cause.type === 'event' ? 'Event' : cause.type === 'post' ? 'Post' : 'Creator'}
+                                </Badge>
+                              </div>
+                              <CardTitle className="text-lg mb-1 line-clamp-2">{cause.title}</CardTitle>
+                              {cause.organization && (
+                                <div className="flex items-center gap-2 mt-2">
+                                  <Avatar className="w-5 h-5">
+                                    <AvatarImage src={getImageUrl(cause.organization.avatar)} />
+                                    <AvatarFallback suppressHydrationWarning>
+                                      {cause.organization.name?.[0] || "O"}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  <span className="text-sm text-muted-foreground">
+                                    {cause.organization.name}
+                                  </span>
+                                  {cause.organization.verified && (
+                                    <CheckCircle className="w-4 h-4 text-primary" />
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                            {cause.image && (
+                              <div className="ml-4">
+                                <div className="w-20 h-20 rounded-lg overflow-hidden bg-muted">
+                                  <img 
+                                    src={getImageUrl(cause.image)} 
+                                    alt={cause.title}
+                                    className="w-full h-full object-cover"
+                                  />
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                              <div>
+                                <p className="text-sm text-muted-foreground">Your Contribution</p>
+                                <p className="text-xl font-bold text-primary">
+                                  {formatAmountSimple(cause.totalDonated)}
+                                </p>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-sm text-muted-foreground">Donations</p>
+                                <p className="text-lg font-semibold">{cause.donationCount}</p>
+                              </div>
+                            </div>
+                            {cause.goalAmount && cause.raisedAmount !== undefined && (
+                              <div className="space-y-1">
+                                <div className="flex justify-between text-sm">
+                                  <span className="text-muted-foreground">Progress</span>
+                                  <span className="font-medium">
+                                    {formatAmountSimple(cause.raisedAmount)} / {formatAmountSimple(cause.goalAmount)}
+                                  </span>
+                                </div>
+                                <div className="h-2 bg-muted rounded-full overflow-hidden">
+                                  <div 
+                                    className="h-full bg-primary transition-all"
+                                    style={{ width: `${Math.min((cause.raisedAmount / cause.goalAmount) * 100, 100)}%` }}
+                                  />
+                                </div>
+                              </div>
+                            )}
+                            <div className="flex items-center justify-between text-xs text-muted-foreground pt-2 border-t">
+                              <span>First donation: {formatTimestamp(cause.firstDonationDate)}</span>
+                              <span>Last: {formatTimestamp(cause.lastDonationDate)}</span>
+                            </div>
+                          </div>
+                        </CardContent>
+                        <CardContent className="pt-0">
+                          <Button variant="outline" className="w-full" asChild>
+                            <Link href={
+                              cause.type === 'event' 
+                                ? `/event/${cause.id}`
+                                : cause.type === 'post'
+                                ? `/post/${cause.id}`
+                                : `/profile/${cause.organization?.username || ''}`
+                            }>
+                              View {cause.type === 'event' ? 'Event' : cause.type === 'post' ? 'Post' : 'Profile'}
+                              <ArrowRight className="w-4 h-4 ml-2" />
+                            </Link>
+                          </Button>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </div>
+              
               {/* Donations Section */}
               <div>
                 <h2 className="text-xl font-semibold text-foreground mb-4 flex items-center gap-2">
                   <DollarSign className="w-5 h-5" />
-                  My Donations
+                  All Donations
                 </h2>
                 
                 {donations.length === 0 ? (
@@ -462,7 +658,7 @@ export default function MyCausesPage() {
                               <div className="flex items-center gap-3">
                                 <Avatar className="w-12 h-12">
                                   <AvatarImage src={getImageUrl(followedUser.avatar)} />
-                                  <AvatarFallback>
+                                  <AvatarFallback suppressHydrationWarning>
                                     {followedUser.name?.[0] || followedUser.username?.[0] || "U"}
                                   </AvatarFallback>
                                 </Avatar>

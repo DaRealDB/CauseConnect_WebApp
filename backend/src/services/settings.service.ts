@@ -100,11 +100,21 @@ export const settingsService = {
           textSize: settings.textSize,
         },
       },
+      community: {
+        autoJoinSquadEvents: settings.autoJoinSquadEvents ?? false,
+        rsvpReminders: settings.rsvpReminders ?? true,
+        allowAwards: settings.allowAwards ?? true,
+        showFeedbackButtons: settings.showFeedbackButtons ?? true,
+      },
+      volunteering: {
+        availableForVolunteering: settings.availableForVolunteering ?? false,
+        preferredActivities: settings.preferredVolunteerActivities || [],
+      },
     }
   },
 
   async updateSettings(userId: string, data: any) {
-    const { notifications, privacy, personalization } = data
+    const { notifications, privacy, personalization, community, volunteering } = data
     
     // CRITICAL: Get existing tags first to preserve them if not provided
     const existingSettings = await prisma.userSettings.findUnique({
@@ -139,6 +149,12 @@ export const settingsService = {
         highContrast: personalization?.accessibility?.highContrast ?? false,
         screenReader: personalization?.accessibility?.screenReader ?? false,
         textSize: personalization?.accessibility?.textSize ?? 'medium',
+        autoJoinSquadEvents: community?.autoJoinSquadEvents ?? false,
+        rsvpReminders: community?.rsvpReminders ?? true,
+        allowAwards: community?.allowAwards ?? true,
+        showFeedbackButtons: community?.showFeedbackButtons ?? true,
+        availableForVolunteering: volunteering?.availableForVolunteering ?? false,
+        preferredVolunteerActivities: volunteering?.preferredActivities ?? [],
       },
       update: {
         ...(notifications && {
@@ -184,6 +200,16 @@ export const settingsService = {
           ...(personalization.accessibility?.screenReader !== undefined && { screenReader: personalization.accessibility.screenReader }),
           ...(personalization.accessibility?.textSize !== undefined && { textSize: personalization.accessibility.textSize }),
         }),
+        ...(community && {
+          ...(community.autoJoinSquadEvents !== undefined && { autoJoinSquadEvents: community.autoJoinSquadEvents }),
+          ...(community.rsvpReminders !== undefined && { rsvpReminders: community.rsvpReminders }),
+          ...(community.allowAwards !== undefined && { allowAwards: community.allowAwards }),
+          ...(community.showFeedbackButtons !== undefined && { showFeedbackButtons: community.showFeedbackButtons }),
+        }),
+        ...(volunteering && {
+          ...(volunteering.availableForVolunteering !== undefined && { availableForVolunteering: volunteering.availableForVolunteering }),
+          ...(volunteering.preferredActivities !== undefined && { preferredVolunteerActivities: volunteering.preferredActivities }),
+        }),
       },
     })
 
@@ -212,6 +238,16 @@ export const settingsService = {
           screenReader: settings.screenReader,
           textSize: settings.textSize,
         },
+      },
+      community: {
+        autoJoinSquadEvents: settings.autoJoinSquadEvents ?? false,
+        rsvpReminders: settings.rsvpReminders ?? true,
+        allowAwards: settings.allowAwards ?? true,
+        showFeedbackButtons: settings.showFeedbackButtons ?? true,
+      },
+      volunteering: {
+        availableForVolunteering: settings.availableForVolunteering ?? false,
+        preferredActivities: settings.preferredVolunteerActivities || [],
       },
     }
   },

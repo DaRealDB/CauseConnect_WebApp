@@ -71,3 +71,6 @@ If emails still don't send after setting `SMTP_USER`:
 
 4. **Test SMTP connection**: The backend will automatically verify the SMTP connection when sending emails
 
+
+
+

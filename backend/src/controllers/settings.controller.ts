@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express'
 import { AuthRequest } from '../middleware/auth'
 import { settingsService } from '../services/settings.service'
 import { privacyService } from '../services/privacy.service'
+import { impactService } from '../services/impact.service'
 
 export const settingsController = {
   async getSettings(req: AuthRequest, res: Response, next: NextFunction) {
@@ -88,6 +89,15 @@ export const settingsController = {
       res.setHeader('Content-Type', 'application/json')
       res.setHeader('Content-Disposition', `attachment; filename="causeconnect-data-${new Date().toISOString().split('T')[0]}.json"`)
       res.json(exportData)
+    } catch (error: any) {
+      next(error)
+    }
+  },
+
+  async getImpactStats(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const stats = await impactService.getUserImpactStats(req.userId!)
+      res.json(stats)
     } catch (error: any) {
       next(error)
     }

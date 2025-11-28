@@ -54,26 +54,7 @@ export const passwordResetService = {
    * Reset password after verification
    */
   async resetPassword(email: string, otp: string, newPassword: string): Promise<void> {
-    // Verify reset code (if OTP provided, verify it; otherwise check if already verified)
-    if (otp) {
-      await this.verifyResetCode(email, otp)
-    } else {
-      // Check if reset code was previously verified
-      const verification = await prisma.verification.findFirst({
-        where: {
-          email,
-          type: 'password_reset',
-          verified: true,
-          expiresAt: { gt: new Date() },
-        },
-        orderBy: { createdAt: 'desc' },
-      })
-      if (!verification) {
-        throw createError('Reset code verification required', 400)
-      }
-    }
-
-    // Check if user exists
+    // Check if user exists first
     const user = await prisma.user.findUnique({
       where: { email },
     })
@@ -82,18 +63,72 @@ export const passwordResetService = {
       throw createError('User not found', 404)
     }
 
+    // Check if reset code was previously verified (most common case)
+    let verification = await prisma.verification.findFirst({
+      where: {
+        email,
+        type: 'password_reset',
+        verified: true,
+        expiresAt: { gt: new Date() },
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+
+    // If not already verified, verify the OTP if provided
+    if (!verification) {
+      if (!otp) {
+        throw createError('Reset code verification required', 400)
+      }
+      
+      // Verify the OTP
+      await this.verifyResetCode(email, otp)
+      
+      // Get the verified verification record
+      verification = await prisma.verification.findFirst({
+        where: {
+          email,
+          type: 'password_reset',
+          verified: true,
+          expiresAt: { gt: new Date() },
+        },
+        orderBy: { createdAt: 'desc' },
+      })
+
+      if (!verification) {
+        throw createError('Reset code verification failed', 400)
+      }
+    }
+
     // Hash new password
+    console.log(`[Password Reset] Hashing new password for ${email}`)
     const hashedPassword = await hashPassword(newPassword)
+    console.log(`[Password Reset] Password hashed successfully for ${email}`)
 
     // Update password
-    await prisma.user.update({
+    console.log(`[Password Reset] Updating password in database for ${email}`)
+    const updatedUser = await prisma.user.update({
       where: { email },
       data: { password: hashedPassword },
     })
 
+    if (!updatedUser) {
+      console.error(`[Password Reset] Failed to update password for ${email} - user update returned null`)
+      throw createError('Failed to update password', 500)
+    }
+
+    console.log(`[Password Reset] Password updated successfully in database for ${email} (userId: ${updatedUser.id})`)
+
     // Invalidate all refresh tokens (force re-login)
     await prisma.refreshToken.deleteMany({
       where: { userId: user.id },
+    })
+
+    // Delete the verification record after successful password reset (one-time use)
+    await prisma.verification.delete({
+      where: { id: verification.id },
+    }).catch((err) => {
+      // Log but don't fail if deletion fails
+      console.error(`[Password Reset] Failed to delete verification record: ${err.message}`)
     })
 
     console.log(`[Password Reset] Password reset successfully for ${email}`)

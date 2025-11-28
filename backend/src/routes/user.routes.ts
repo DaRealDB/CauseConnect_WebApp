@@ -16,6 +16,7 @@ router.get('/following', requireAuth, userController.getFollowingUsers)
 router.post('/preferences', requireAuth, userController.updatePreferences)
 router.get('/preferences', requireAuth, userController.getPreferences)
 router.post('/change-password', requireAuth, userController.changePassword)
+router.get('/me/my-causes', requireAuth, userController.getMyCauses)
 
 // Public routes
 router.get('/:username', userController.getUserProfile)

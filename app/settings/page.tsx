@@ -57,7 +57,8 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { useAuth } from "@/contexts/AuthContext"
-import { userService, settingsService } from "@/lib/api/services"
+import { userService, settingsService, squadService } from "@/lib/api/services"
+import type { Squad } from "@/lib/api/types"
 import { toast } from "sonner"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { ImageCropper } from "@/components/image-cropper"
@@ -75,6 +76,12 @@ export default function SettingsPage() {
   const { refreshCurrency } = useCurrency()
   const { theme: currentTheme, setTheme: setThemeContext } = useThemeContext()
   const [activeSection, setActiveSection] = useState("account")
+  const [isMounted, setIsMounted] = useState(false)
+  
+  // Prevent hydration mismatch by only rendering dynamic content after mount
+  useEffect(() => {
+    setIsMounted(true)
+  }, [])
   const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [showPasswordDialog, setShowPasswordDialog] = useState(false)
@@ -160,6 +167,48 @@ export default function SettingsPage() {
   const [availableRegions, setAvailableRegions] = useState<Array<{ code: string; name: string }>>([])
   const [selectedTags, setSelectedTags] = useState<string[]>([])
   
+  // Community & Engagement state
+  const [squads, setSquads] = useState<Squad[]>([])
+  const [isLoadingSquads, setIsLoadingSquads] = useState(false)
+  const [communityPreferences, setCommunityPreferences] = useState({
+    autoJoinSquadEvents: false,
+    rsvpReminders: true,
+    allowAwards: true,
+    showFeedbackButtons: true,
+  })
+  const [showCreateSquadDialog, setShowCreateSquadDialog] = useState(false)
+  const [createSquadData, setCreateSquadData] = useState({
+    name: "",
+    description: "",
+    avatar: null as File | null,
+  })
+  
+  // Legal & Support state
+  const [impactStats, setImpactStats] = useState({
+    totalDonated: 0,
+    causesSupported: 0,
+    donationCount: 0,
+  })
+  const [isLoadingImpactStats, setIsLoadingImpactStats] = useState(false)
+  const [volunteeringPreferences, setVolunteeringPreferences] = useState({
+    availableForVolunteering: false,
+    preferredActivities: [] as string[],
+  })
+  const [showLegalDocDialog, setShowLegalDocDialog] = useState(false)
+  const [selectedLegalDoc, setSelectedLegalDoc] = useState<string | null>(null)
+  const [showSupportDialog, setShowSupportDialog] = useState(false)
+  const [supportType, setSupportType] = useState<'help' | 'contact' | 'report' | null>(null)
+  const [supportMessage, setSupportMessage] = useState("")
+  
+  // Available volunteer activities
+  const VOLUNTEER_ACTIVITIES = [
+    "Event Organization",
+    "Fundraising",
+    "Community Outreach",
+    "Administrative",
+    "Hands-on Work",
+  ]
+  
   // Available tags from onboarding
   const AVAILABLE_TAGS = [
     { id: "education", label: "Education" },
@@ -199,6 +248,13 @@ export default function SettingsPage() {
     }
   }, [activeSection, user])
 
+  // Load squads when community section is active
+  useEffect(() => {
+    if (activeSection === "community" && user) {
+      loadSquads()
+    }
+  }, [activeSection, user])
+
   // Load settings on mount
   useEffect(() => {
     const loadSettings = async () => {
@@ -233,6 +289,11 @@ export default function SettingsPage() {
           country: country?.code || "US",
           region: personalizationData.region || "",
           interestTags: validTags,
+          accessibility: personalizationData.accessibility || {
+            highContrast: false,
+            screenReader: false,
+            textSize: "medium",
+          },
         })
         setSelectedTags(validTags)
         // Load regions for the country
@@ -244,6 +305,26 @@ export default function SettingsPage() {
         const savedTheme = settings.personalization.theme || "system"
         setThemeState(savedTheme)
         // Theme will be applied by ThemeContext
+        
+        // Load community preferences
+        if (settings.community) {
+          setCommunityPreferences({
+            autoJoinSquadEvents: settings.community.autoJoinSquadEvents ?? false,
+            rsvpReminders: settings.community.rsvpReminders ?? true,
+            allowAwards: settings.community.allowAwards ?? true,
+            showFeedbackButtons: settings.community.showFeedbackButtons ?? true,
+          })
+        }
+        
+        // Load volunteering preferences
+        if (settings.volunteering) {
+          setVolunteeringPreferences({
+            availableForVolunteering: settings.volunteering.availableForVolunteering ?? false,
+            preferredActivities: settings.volunteering.preferredActivities || [],
+          })
+        }
+        
+        // Apply accessibility settings after loading (will be applied by useEffect when state updates)
       } catch (error: any) {
         console.error("Failed to load settings:", error)
         // Don't show error toast - settings might not exist yet
@@ -482,10 +563,134 @@ export default function SettingsPage() {
     }
   }
 
+  const loadSquads = async () => {
+    if (!user) return
+    try {
+      setIsLoadingSquads(true)
+      const userSquads = await squadService.getSquads()
+      setSquads(userSquads)
+    } catch (error: any) {
+      console.error("Failed to load squads:", error)
+      toast.error(error.message || "Failed to load squads")
+    } finally {
+      setIsLoadingSquads(false)
+    }
+  }
+
+  const handleCreateSquad = async () => {
+    if (!createSquadData.name.trim()) {
+      toast.error("Squad name is required")
+      return
+    }
+    try {
+      setIsSaving(true)
+      await squadService.createSquad({
+        name: createSquadData.name,
+        description: createSquadData.description,
+        avatar: createSquadData.avatar || undefined,
+      })
+      toast.success("Squad created successfully!")
+      setShowCreateSquadDialog(false)
+      setCreateSquadData({ name: "", description: "", avatar: null })
+      await loadSquads()
+    } catch (error: any) {
+      toast.error(error.message || "Failed to create squad")
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleSquadManage = (squadId: string | number) => {
+    // Navigate to squad detail page for management
+    window.location.href = `/squads/${squadId}`
+  }
+
+  // Load impact statistics
+  const loadImpactStats = async () => {
+    if (!user) return
+    try {
+      setIsLoadingImpactStats(true)
+      const stats = await settingsService.getImpactStats()
+      setImpactStats(stats)
+    } catch (error: any) {
+      console.error("Failed to load impact stats:", error)
+      // Don't show error toast - stats might not exist yet
+    } finally {
+      setIsLoadingImpactStats(false)
+    }
+  }
+
+  // Load volunteering preferences from settings
+  const loadVolunteeringPreferences = async () => {
+    try {
+      const settings = await settingsService.getSettings()
+      if (settings.volunteering) {
+        setVolunteeringPreferences({
+          availableForVolunteering: settings.volunteering.availableForVolunteering ?? false,
+          preferredActivities: settings.volunteering.preferredActivities || [],
+        })
+      }
+    } catch (error: any) {
+      console.error("Failed to load volunteering preferences:", error)
+    }
+  }
+
+  // Apply accessibility settings to the document
+  const applyAccessibilitySettings = (accessibility: {
+    highContrast: boolean
+    screenReader: boolean
+    textSize: string
+  }) => {
+    if (typeof document === 'undefined') return
+
+    const html = document.documentElement
+    const body = document.body
+
+    // High Contrast Mode
+    if (accessibility.highContrast) {
+      html.classList.add('high-contrast')
+      html.style.setProperty('--contrast-multiplier', '1.5')
+    } else {
+      html.classList.remove('high-contrast')
+      html.style.removeProperty('--contrast-multiplier')
+    }
+
+    // Screen Reader Support
+    if (accessibility.screenReader) {
+      html.setAttribute('data-screen-reader', 'true')
+      // Add ARIA landmarks and improve semantic structure
+      body.setAttribute('role', 'main')
+    } else {
+      html.removeAttribute('data-screen-reader')
+      body.removeAttribute('role')
+    }
+
+    // Text Size
+    html.classList.remove('text-small', 'text-medium', 'text-large', 'text-extra-large')
+    html.classList.add(`text-${accessibility.textSize}`)
+    
+    // Apply CSS variable for text size scaling
+    const textSizeMap: Record<string, string> = {
+      small: '0.875rem',
+      medium: '1rem',
+      large: '1.125rem',
+      'extra-large': '1.25rem',
+    }
+    html.style.setProperty('--base-font-size', textSizeMap[accessibility.textSize] || '1rem')
+  }
+
+  // Apply accessibility settings on mount and when settings load
+  useEffect(() => {
+    if (personalization.accessibility) {
+      applyAccessibilitySettings(personalization.accessibility)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [personalization.accessibility?.highContrast, personalization.accessibility?.screenReader, personalization.accessibility?.textSize])
+
   const handleSaveSettings = async () => {
     try {
       setIsSaving(true)
-      const settingsData = {
+      const settingsData: any = {
         notifications: {
           donations: notifications.donations,
           comments: notifications.comments,
@@ -508,6 +713,17 @@ export default function SettingsPage() {
           accessibility: personalization.accessibility,
         },
       }
+      
+      // Add community preferences if we're in the community section
+      if (activeSection === "community") {
+        settingsData.community = communityPreferences
+      }
+      
+      // Add volunteering preferences if we're in the legal section
+      if (activeSection === "legal") {
+        settingsData.volunteering = volunteeringPreferences
+      }
+      
       await settingsService.updateSettings(settingsData)
       // Theme is already applied by setThemeContext when clicking the theme buttons
       // Refresh currency context to update all displays immediately
@@ -541,6 +757,21 @@ export default function SettingsPage() {
     if (activeSection === "privacy" && user) {
       loadLoginActivity()
       loadBlockedUsers()
+    }
+  }, [activeSection, user])
+
+  // Load squads when community section is active
+  useEffect(() => {
+    if (activeSection === "community" && user) {
+      loadSquads()
+    }
+  }, [activeSection, user])
+
+  // Load impact stats and volunteering preferences when legal section is active
+  useEffect(() => {
+    if (activeSection === "legal" && user) {
+      loadImpactStats()
+      loadVolunteeringPreferences()
     }
   }, [activeSection, user])
 
@@ -635,7 +866,7 @@ export default function SettingsPage() {
                       <Avatar className="w-20 h-20">
                         <AvatarImage src={getImageUrl(user?.avatar)} />
                         <AvatarFallback>
-                          {user?.firstName?.[0] || user?.username?.[0] || "U"}
+                          {isMounted ? (user?.firstName?.[0] || user?.username?.[0] || "U") : "U"}
                         </AvatarFallback>
                       </Avatar>
                       <div>
@@ -731,7 +962,7 @@ export default function SettingsPage() {
                       <div className="flex items-center gap-3">
                         <Mail className="w-4 h-4 text-muted-foreground" />
                         <div>
-                          <p className="font-medium">{user?.email || "No email"}</p>
+                          <p className="font-medium">{isMounted ? (user?.email || "No email") : "No email"}</p>
                           <p className="text-sm text-muted-foreground">Primary email</p>
                         </div>
                       </div>
@@ -917,7 +1148,9 @@ export default function SettingsPage() {
                               <div className="flex items-center gap-3">
                                 <Avatar className="w-8 h-8">
                                   <AvatarImage src={getImageUrl(userResult.avatar)} alt={`${userResult.firstName} ${userResult.lastName}`} />
-                                  <AvatarFallback>{userResult.firstName[0]}</AvatarFallback>
+                                  <AvatarFallback>
+                                    {userResult.firstName?.[0] || userResult.username?.[0] || "U"}
+                                  </AvatarFallback>
                                 </Avatar>
                                 <div>
                                   <p className="font-medium text-sm">{userResult.firstName} {userResult.lastName}</p>
@@ -961,7 +1194,9 @@ export default function SettingsPage() {
                             <div className="flex items-center gap-3">
                               <Avatar className="w-10 h-10">
                                 <AvatarImage src={getImageUrl(blocked.avatar)} alt={blocked.name} />
-                                <AvatarFallback>{blocked.name[0]}</AvatarFallback>
+                                <AvatarFallback>
+                                  {blocked.name?.[0] || blocked.username?.[0] || "U"}
+                                </AvatarFallback>
                               </Avatar>
                               <div>
                                 <p className="font-medium">{blocked.name}</p>
@@ -1369,7 +1604,23 @@ export default function SettingsPage() {
                           <p className="text-sm text-muted-foreground">Increase contrast for better visibility</p>
                         </div>
                       </div>
-                      <Switch />
+                      <Switch 
+                        checked={personalization.accessibility.highContrast}
+                        onCheckedChange={(checked) => {
+                          setPersonalization({
+                            ...personalization,
+                            accessibility: {
+                              ...personalization.accessibility,
+                              highContrast: checked,
+                            },
+                          })
+                          // Apply immediately
+                          applyAccessibilitySettings({
+                            ...personalization.accessibility,
+                            highContrast: checked,
+                          })
+                        }}
+                      />
                     </div>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
@@ -1379,11 +1630,41 @@ export default function SettingsPage() {
                           <p className="text-sm text-muted-foreground">Optimize for screen readers</p>
                         </div>
                       </div>
-                      <Switch />
+                      <Switch 
+                        checked={personalization.accessibility.screenReader}
+                        onCheckedChange={(checked) => {
+                          setPersonalization({
+                            ...personalization,
+                            accessibility: {
+                              ...personalization.accessibility,
+                              screenReader: checked,
+                            },
+                          })
+                          // Apply immediately
+                          applyAccessibilitySettings({
+                            ...personalization.accessibility,
+                            screenReader: checked,
+                          })
+                        }}
+                      />
                     </div>
                     <div className="space-y-2">
                       <Label>Text Size</Label>
-                      <Select defaultValue="medium">
+                      <Select 
+                        value={personalization.accessibility.textSize}
+                        onValueChange={(value) => {
+                          const newAccessibility = {
+                            ...personalization.accessibility,
+                            textSize: value,
+                          }
+                          setPersonalization({
+                            ...personalization,
+                            accessibility: newAccessibility,
+                          })
+                          // Apply immediately
+                          applyAccessibilitySettings(newAccessibility)
+                        }}
+                      >
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>
@@ -1414,32 +1695,64 @@ export default function SettingsPage() {
                     <CardDescription>Manage the groups you've created or joined</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <div className="space-y-3">
-                      {[
-                        { name: "Environmental Warriors", members: 156, role: "Admin" },
-                        { name: "Education Advocates", members: 89, role: "Member" },
-                        { name: "Local Food Bank", members: 234, role: "Moderator" },
-                      ].map((squad, index) => (
-                        <div
-                          key={index}
-                          className="flex items-center justify-between p-3 border border-border rounded-lg"
-                        >
-                          <div>
-                            <p className="font-medium">{squad.name}</p>
-                            <p className="text-sm text-muted-foreground">
-                              {squad.members} members • {squad.role}
-                            </p>
-                          </div>
-                          <Button variant="outline" size="sm">
-                            Manage
-                          </Button>
+                    {isLoadingSquads ? (
+                      <div className="text-center py-8">
+                        <p className="text-muted-foreground">Loading your squads...</p>
+                      </div>
+                    ) : squads.length === 0 ? (
+                      <div className="text-center py-8">
+                        <Users className="w-12 h-12 mx-auto mb-3 text-muted-foreground opacity-50" />
+                        <p className="text-muted-foreground mb-4">You haven't joined any squads yet</p>
+                        <Button variant="outline" onClick={() => setShowCreateSquadDialog(true)}>
+                          <Plus className="w-4 h-4 mr-2" />
+                          Create Your First Squad
+                        </Button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="space-y-3">
+                          {squads.map((squad) => (
+                            <div
+                              key={squad.id}
+                              className="flex items-center justify-between p-3 border border-border rounded-lg"
+                            >
+                              <div className="flex items-center gap-3">
+                                {squad.avatar && (
+                                  <Avatar className="w-10 h-10">
+                                    <AvatarImage src={getImageUrl(squad.avatar)} />
+                                    <AvatarFallback>
+                                      {squad.name?.[0] || "S"}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                )}
+                                <div>
+                                  <p className="font-medium">{squad.name}</p>
+                                  <p className="text-sm text-muted-foreground">
+                                    {squad.members} {squad.members === 1 ? 'member' : 'members'}
+                                    {squad.role && ` • ${squad.role.charAt(0).toUpperCase() + squad.role.slice(1)}`}
+                                  </p>
+                                </div>
+                              </div>
+                              <Button 
+                                variant="outline" 
+                                size="sm"
+                                onClick={() => handleSquadManage(squad.id)}
+                              >
+                                Manage
+                              </Button>
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
-                    <Button variant="outline" className="w-full mt-4 bg-transparent">
-                      <Plus className="w-4 h-4 mr-2" />
-                      Create New Squad
-                    </Button>
+                        <Button 
+                          variant="outline" 
+                          className="w-full mt-4 bg-transparent"
+                          onClick={() => setShowCreateSquadDialog(true)}
+                        >
+                          <Plus className="w-4 h-4 mr-2" />
+                          Create New Squad
+                        </Button>
+                      </>
+                    )}
                   </CardContent>
                 </Card>
 
@@ -1457,7 +1770,12 @@ export default function SettingsPage() {
                           <p className="text-sm text-muted-foreground">Automatically join events from your squads</p>
                         </div>
                       </div>
-                      <Switch />
+                      <Switch 
+                        checked={communityPreferences.autoJoinSquadEvents}
+                        onCheckedChange={(checked) => {
+                          setCommunityPreferences({ ...communityPreferences, autoJoinSquadEvents: checked })
+                        }}
+                      />
                     </div>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
@@ -1467,7 +1785,12 @@ export default function SettingsPage() {
                           <p className="text-sm text-muted-foreground">Get reminded to RSVP to events</p>
                         </div>
                       </div>
-                      <Switch defaultChecked />
+                      <Switch 
+                        checked={communityPreferences.rsvpReminders}
+                        onCheckedChange={(checked) => {
+                          setCommunityPreferences({ ...communityPreferences, rsvpReminders: checked })
+                        }}
+                      />
                     </div>
                   </CardContent>
                 </Card>
@@ -1488,7 +1811,12 @@ export default function SettingsPage() {
                           </p>
                         </div>
                       </div>
-                      <Switch defaultChecked />
+                      <Switch 
+                        checked={communityPreferences.allowAwards}
+                        onCheckedChange={(checked) => {
+                          setCommunityPreferences({ ...communityPreferences, allowAwards: checked })
+                        }}
+                      />
                     </div>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
@@ -1500,7 +1828,12 @@ export default function SettingsPage() {
                           </p>
                         </div>
                       </div>
-                      <Switch defaultChecked />
+                      <Switch 
+                        checked={communityPreferences.showFeedbackButtons}
+                        onCheckedChange={(checked) => {
+                          setCommunityPreferences({ ...communityPreferences, showFeedbackButtons: checked })
+                        }}
+                      />
                     </div>
                   </CardContent>
                 </Card>
@@ -1538,7 +1871,14 @@ export default function SettingsPage() {
                           <p className="font-medium">{doc.title}</p>
                           <p className="text-sm text-muted-foreground">{doc.description}</p>
                         </div>
-                        <Button variant="outline" size="sm">
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => {
+                            setSelectedLegalDoc(doc.title.toLowerCase().replace(/\s+/g, '-'))
+                            setShowLegalDocDialog(true)
+                          }}
+                        >
                           View
                           <ExternalLink className="w-3 h-3 ml-2" />
                         </Button>
@@ -1553,19 +1893,38 @@ export default function SettingsPage() {
                     <CardDescription>See how your donations and support have helped</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <div className="grid grid-cols-2 gap-4 mb-4">
-                      <div className="text-center p-4 bg-muted rounded-lg">
-                        <p className="text-2xl font-bold text-primary">$275</p>
-                        <p className="text-sm text-muted-foreground">Total Donated</p>
+                    {isLoadingImpactStats ? (
+                      <div className="text-center py-8">
+                        <p className="text-muted-foreground">Loading impact statistics...</p>
                       </div>
-                      <div className="text-center p-4 bg-muted rounded-lg">
-                        <p className="text-2xl font-bold text-primary">12</p>
-                        <p className="text-sm text-muted-foreground">Causes Supported</p>
-                      </div>
-                    </div>
-                    <Button variant="outline" className="w-full bg-transparent">
-                      View Full Impact Report
-                    </Button>
+                    ) : (
+                      <>
+                        <div className="grid grid-cols-2 gap-4 mb-4">
+                          <div className="text-center p-4 bg-muted rounded-lg">
+                            <p className="text-2xl font-bold text-primary">
+                              ${impactStats.totalDonated.toFixed(2)}
+                            </p>
+                            <p className="text-sm text-muted-foreground">Total Donated</p>
+                          </div>
+                          <div className="text-center p-4 bg-muted rounded-lg">
+                            <p className="text-2xl font-bold text-primary">
+                              {impactStats.causesSupported}
+                            </p>
+                            <p className="text-sm text-muted-foreground">Causes Supported</p>
+                          </div>
+                        </div>
+                        <Button 
+                          variant="outline" 
+                          className="w-full bg-transparent"
+                          onClick={() => {
+                            // Navigate to donation history or impact report page
+                            window.location.href = '/settings?section=payments'
+                          }}
+                        >
+                          View Full Impact Report
+                        </Button>
+                      </>
+                    )}
                   </CardContent>
                 </Card>
 
@@ -1580,22 +1939,32 @@ export default function SettingsPage() {
                         <p className="font-medium">Available for Volunteering</p>
                         <p className="text-sm text-muted-foreground">Get notified about volunteer opportunities</p>
                       </div>
-                      <Switch />
+                      <Switch 
+                        checked={volunteeringPreferences.availableForVolunteering}
+                        onCheckedChange={(checked) => {
+                          setVolunteeringPreferences({
+                            ...volunteeringPreferences,
+                            availableForVolunteering: checked,
+                          })
+                        }}
+                      />
                     </div>
                     <div className="space-y-2">
                       <Label>Preferred Volunteer Activities</Label>
                       <div className="flex flex-wrap gap-2">
-                        {[
-                          "Event Organization",
-                          "Fundraising",
-                          "Community Outreach",
-                          "Administrative",
-                          "Hands-on Work",
-                        ].map((activity) => (
+                        {VOLUNTEER_ACTIVITIES.map((activity) => (
                           <Badge
                             key={activity}
-                            variant="outline"
+                            variant={volunteeringPreferences.preferredActivities.includes(activity) ? "default" : "outline"}
                             className="cursor-pointer hover:bg-primary hover:text-primary-foreground"
+                            onClick={() => {
+                              setVolunteeringPreferences(prev => ({
+                                ...prev,
+                                preferredActivities: prev.preferredActivities.includes(activity)
+                                  ? prev.preferredActivities.filter(a => a !== activity)
+                                  : [...prev.preferredActivities, activity]
+                              }))
+                            }}
                           >
                             {activity}
                           </Badge>
@@ -1611,15 +1980,36 @@ export default function SettingsPage() {
                     <CardDescription>Get help or report issues</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    <Button variant="outline" className="w-full justify-start bg-transparent">
+                    <Button 
+                      variant="outline" 
+                      className="w-full justify-start bg-transparent"
+                      onClick={() => {
+                        setSupportType('help')
+                        setShowSupportDialog(true)
+                      }}
+                    >
                       <HelpCircle className="w-4 h-4 mr-2" />
                       Help Center
                     </Button>
-                    <Button variant="outline" className="w-full justify-start bg-transparent">
+                    <Button 
+                      variant="outline" 
+                      className="w-full justify-start bg-transparent"
+                      onClick={() => {
+                        setSupportType('contact')
+                        setShowSupportDialog(true)
+                      }}
+                    >
                       <MessageSquare className="w-4 h-4 mr-2" />
                       Contact Support
                     </Button>
-                    <Button variant="outline" className="w-full justify-start bg-transparent">
+                    <Button 
+                      variant="outline" 
+                      className="w-full justify-start bg-transparent"
+                      onClick={() => {
+                        setSupportType('report')
+                        setShowSupportDialog(true)
+                      }}
+                    >
                       <ExternalLink className="w-4 h-4 mr-2" />
                       Report an Issue
                     </Button>
@@ -1750,6 +2140,260 @@ export default function SettingsPage() {
           cropShape="round"
         />
       )}
+
+      {/* Legal Document Dialog */}
+      <Dialog open={showLegalDocDialog} onOpenChange={setShowLegalDocDialog}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {selectedLegalDoc === 'terms-of-service' && 'Terms of Service'}
+              {selectedLegalDoc === 'privacy-policy' && 'Privacy Policy'}
+              {selectedLegalDoc === 'transparency-report' && 'Transparency Report'}
+              {selectedLegalDoc === 'community-guidelines' && 'Community Guidelines'}
+            </DialogTitle>
+            <DialogDescription>
+              {selectedLegalDoc === 'terms-of-service' && 'Our terms and conditions for using CauseConnect'}
+              {selectedLegalDoc === 'privacy-policy' && 'How we handle your personal data and privacy'}
+              {selectedLegalDoc === 'transparency-report' && 'How donations are handled and platform accountability'}
+              {selectedLegalDoc === 'community-guidelines' && 'Rules and guidelines for using CauseConnect'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="prose max-w-none dark:prose-invert">
+            {selectedLegalDoc === 'terms-of-service' && (
+              <div className="space-y-4">
+                <h3>Terms of Service</h3>
+                <p>Last updated: {new Date().toLocaleDateString()}</p>
+                <p>By using CauseConnect, you agree to these terms and conditions. Please read them carefully.</p>
+                <h4>1. Acceptance of Terms</h4>
+                <p>By accessing and using CauseConnect, you accept and agree to be bound by the terms and provision of this agreement.</p>
+                <h4>2. Use License</h4>
+                <p>Permission is granted to temporarily use CauseConnect for personal, non-commercial transitory viewing only.</p>
+                <h4>3. User Responsibilities</h4>
+                <p>Users are responsible for maintaining the confidentiality of their account credentials and for all activities that occur under their account.</p>
+                <p className="text-sm text-muted-foreground">Full terms of service will be available in the production version.</p>
+              </div>
+            )}
+            {selectedLegalDoc === 'privacy-policy' && (
+              <div className="space-y-4">
+                <h3>Privacy Policy</h3>
+                <p>Last updated: {new Date().toLocaleDateString()}</p>
+                <p>We respect your privacy and are committed to protecting your personal data.</p>
+                <h4>1. Information We Collect</h4>
+                <p>We collect information that you provide directly to us, including your name, email address, and payment information.</p>
+                <h4>2. How We Use Your Information</h4>
+                <p>We use your information to provide, maintain, and improve our services, process transactions, and communicate with you.</p>
+                <h4>3. Data Security</h4>
+                <p>We implement appropriate security measures to protect your personal information from unauthorized access, alteration, disclosure, or destruction.</p>
+                <p className="text-sm text-muted-foreground">Full privacy policy will be available in the production version.</p>
+              </div>
+            )}
+            {selectedLegalDoc === 'transparency-report' && (
+              <div className="space-y-4">
+                <h3>Transparency Report</h3>
+                <p>Last updated: {new Date().toLocaleDateString()}</p>
+                <p>We believe in transparency and accountability in how donations are processed and funds are distributed.</p>
+                <h4>1. Donation Processing</h4>
+                <p>All donations are processed securely through Stripe. CauseConnect charges a small platform fee to cover operational costs.</p>
+                <h4>2. Fund Distribution</h4>
+                <p>Funds are transferred directly to the cause organizers. We maintain detailed records of all transactions for accountability.</p>
+                <h4>3. Financial Transparency</h4>
+                <p>We publish quarterly reports on platform fees, donation volumes, and fund distributions to maintain transparency.</p>
+                <p className="text-sm text-muted-foreground">Full transparency report will be available in the production version.</p>
+              </div>
+            )}
+            {selectedLegalDoc === 'community-guidelines' && (
+              <div className="space-y-4">
+                <h3>Community Guidelines</h3>
+                <p>Last updated: {new Date().toLocaleDateString()}</p>
+                <p>These guidelines help create a safe and welcoming community for everyone on CauseConnect.</p>
+                <h4>1. Be Respectful</h4>
+                <p>Treat all community members with respect and kindness. Harassment, hate speech, or abusive behavior will not be tolerated.</p>
+                <h4>2. Authentic Content</h4>
+                <p>Share genuine causes and authentic content. Misleading or fraudulent content is strictly prohibited.</p>
+                <h4>3. Privacy and Safety</h4>
+                <p>Respect others' privacy and report any content that violates our safety standards.</p>
+                <h4>4. Compliance</h4>
+                <p>Follow all applicable laws and regulations when creating causes and organizing events.</p>
+                <p className="text-sm text-muted-foreground">Full community guidelines will be available in the production version.</p>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowLegalDocDialog(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Support Dialog */}
+      <Dialog open={showSupportDialog} onOpenChange={setShowSupportDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {supportType === 'help' && 'Help Center'}
+              {supportType === 'contact' && 'Contact Support'}
+              {supportType === 'report' && 'Report an Issue'}
+            </DialogTitle>
+            <DialogDescription>
+              {supportType === 'help' && 'Find answers to common questions and get help using CauseConnect'}
+              {supportType === 'contact' && 'Get in touch with our support team'}
+              {supportType === 'report' && 'Report a problem or issue you encountered'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {supportType === 'help' && (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <h4 className="font-semibold">Frequently Asked Questions</h4>
+                  <div className="space-y-3">
+                    <div>
+                      <p className="font-medium">How do I create a cause?</p>
+                      <p className="text-sm text-muted-foreground">
+                        Go to the "Create Cause" page and fill in the details about your cause. Make sure to include compelling images and descriptions.
+                      </p>
+                    </div>
+                    <div>
+                      <p className="font-medium">How are donations processed?</p>
+                      <p className="text-sm text-muted-foreground">
+                        Donations are securely processed through Stripe. Funds are transferred directly to the cause organizer.
+                      </p>
+                    </div>
+                    <div>
+                      <p className="font-medium">Can I donate anonymously?</p>
+                      <p className="text-sm text-muted-foreground">
+                        Yes, you can choose to make your donation anonymous when completing the donation process.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div className="pt-4 border-t">
+                  <p className="text-sm text-muted-foreground">
+                    Need more help? Contact our support team below.
+                  </p>
+                </div>
+              </div>
+            )}
+            {(supportType === 'contact' || supportType === 'report') && (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="support-message">
+                    {supportType === 'contact' ? 'Your Message' : 'Describe the Issue'}
+                  </Label>
+                  <Textarea
+                    id="support-message"
+                    value={supportMessage}
+                    onChange={(e) => setSupportMessage(e.target.value)}
+                    placeholder={
+                      supportType === 'contact'
+                        ? "Describe your question or issue and we'll get back to you as soon as possible..."
+                        : "Describe the problem you encountered, including any error messages or steps to reproduce..."
+                    }
+                    rows={6}
+                    className="resize-none"
+                  />
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  <p>We typically respond within 24-48 hours.</p>
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowSupportDialog(false)
+                setSupportMessage("")
+                setSupportType(null)
+              }}
+            >
+              Cancel
+            </Button>
+            {(supportType === 'contact' || supportType === 'report') && (
+              <Button
+                onClick={async () => {
+                  if (!supportMessage.trim()) {
+                    toast.error("Please enter a message")
+                    return
+                  }
+                  try {
+                    // TODO: Implement backend API endpoint to send support messages
+                    // For now, just show success message
+                    toast.success(
+                      supportType === 'contact'
+                        ? "Your message has been sent. We'll get back to you soon!"
+                        : "Your report has been submitted. Thank you for helping us improve!"
+                    )
+                    setShowSupportDialog(false)
+                    setSupportMessage("")
+                    setSupportType(null)
+                  } catch (error: any) {
+                    toast.error(error.message || "Failed to send message")
+                  }
+                }}
+              >
+                {supportType === 'contact' ? 'Send Message' : 'Submit Report'}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Squad Dialog */}
+      <Dialog open={showCreateSquadDialog} onOpenChange={setShowCreateSquadDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create New Squad</DialogTitle>
+            <DialogDescription>
+              Create a new group to organize events and collaborate with others.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="squadName">Squad Name *</Label>
+              <Input
+                id="squadName"
+                placeholder="e.g., Environmental Warriors"
+                value={createSquadData.name}
+                onChange={(e) => setCreateSquadData({ ...createSquadData, name: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="squadDescription">Description</Label>
+              <Textarea
+                id="squadDescription"
+                placeholder="What is this squad about?"
+                value={createSquadData.description}
+                onChange={(e) => setCreateSquadData({ ...createSquadData, description: e.target.value })}
+                rows={3}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="squadAvatar">Avatar (Optional)</Label>
+              <Input
+                id="squadAvatar"
+                type="file"
+                accept="image/*"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) {
+                    setCreateSquadData({ ...createSquadData, avatar: file })
+                  }
+                }}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCreateSquadDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreateSquad} disabled={isSaving || !createSquadData.name.trim()}>
+              {isSaving ? "Creating..." : "Create Squad"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

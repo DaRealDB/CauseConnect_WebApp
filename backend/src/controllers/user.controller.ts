@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express'
 import { AuthRequest } from '../middleware/auth'
 import { userService } from '../services/user.service'
+import { myCausesService } from '../services/myCauses.service'
 
 export const userController = {
   async getUserProfile(req: AuthRequest, res: Response, next: NextFunction) {
@@ -168,6 +169,15 @@ export const userController = {
       }
       const result = await userService.changePassword(req.userId!, oldPassword, newPassword)
       res.json(result)
+    } catch (error: any) {
+      next(error)
+    }
+  },
+
+  async getMyCauses(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const causes = await myCausesService.getUserCauses(req.userId!)
+      res.json(causes)
     } catch (error: any) {
       next(error)
     }

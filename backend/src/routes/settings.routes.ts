@@ -15,6 +15,9 @@ router.post('/block-user/:userId', requireAuth, settingsController.blockUser)
 router.delete('/block-user/:userId', requireAuth, settingsController.unblockUser)
 router.get('/export-data', requireAuth, settingsController.exportUserData)
 
+// Impact statistics
+router.get('/impact', requireAuth, settingsController.getImpactStats)
+
 export default router
 
 

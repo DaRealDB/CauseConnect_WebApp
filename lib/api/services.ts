@@ -250,6 +250,39 @@ export const userService = {
   async changePassword(oldPassword: string, newPassword: string): Promise<{ success: boolean }> {
     return apiClient.post<{ success: boolean }>('/users/change-password', { oldPassword, newPassword })
   },
+
+  /**
+   * Get user's causes with impact stats (grouped by event/post/recipient)
+   */
+  async getMyCauses(): Promise<{
+    causes: Array<{
+      id: string
+      type: 'event' | 'post' | 'recipient'
+      title: string
+      description?: string
+      image?: string
+      organization?: {
+        id: string
+        username: string
+        name: string
+        avatar?: string
+        verified: boolean
+      }
+      totalDonated: number
+      donationCount: number
+      firstDonationDate: string
+      lastDonationDate: string
+      goalAmount?: number
+      raisedAmount?: number
+      location?: string
+      targetDate?: string
+    }>
+    totalCauses: number
+    totalDonated: number
+    totalDonations: number
+  }> {
+    return apiClient.get('/users/me/my-causes')
+  },
 }
 
 // ==================== EVENTS ====================
@@ -744,6 +777,17 @@ export const settingsService = {
    */
   async exportUserData(): Promise<any> {
     return apiClient.get('/settings/export-data')
+  },
+
+  /**
+   * Get user impact statistics
+   */
+  async getImpactStats(): Promise<{
+    totalDonated: number
+    causesSupported: number
+    donationCount: number
+  }> {
+    return apiClient.get('/settings/impact')
   },
 }
 
