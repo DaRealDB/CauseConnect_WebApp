@@ -1,341 +1,232 @@
 "use client"
 
-import type React from "react"
-
-import { useState, useRef, useEffect } from "react"
+import { useState, useEffect } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
+import { useAuth } from "@/contexts/AuthContext"
+import { ChatSidebar } from "@/components/chat/ChatSidebar"
+import { ChatWindow } from "@/components/chat/ChatWindow"
+import { MessageInput } from "@/components/chat/MessageInput"
+import { verifyFirebaseConnection } from "@/lib/firebase/firebase.config"
+import { useChat } from "@/hooks/useChat"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Badge } from "@/components/ui/badge"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import { Send, Search, Phone, Video, MoreVertical, Paperclip, Smile, Circle } from "lucide-react"
-import { formatTimestamp } from "@/lib/utils"
-
-interface Message {
-  id: string
-  senderId: string
-  senderName: string
-  senderAvatar: string
-  content: string
-  timestamp: Date
-  isRead: boolean
-}
-
-interface Chat {
-  id: string
-  name: string
-  avatar: string
-  lastMessage: string
-  lastMessageTime: Date
-  unreadCount: number
-  isOnline: boolean
-  isGroup?: boolean
-}
+import { AlertCircle, ExternalLink, ArrowLeft } from "lucide-react"
+import Link from "next/link"
+import { userService } from "@/lib/api/services"
+import type { User } from "@/lib/api/types"
+import { toast } from "sonner"
+import { ChatNotificationManager } from "@/components/chat/ChatNotificationManager"
+import { PermissionErrorCard } from "./permission-error"
 
 export default function ChatPage() {
-  const [selectedChat, setSelectedChat] = useState<string | null>("1")
-  const [message, setMessage] = useState("")
-  const [searchQuery, setSearchQuery] = useState("")
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-
-  const chats: Chat[] = [
-    {
-      id: "1",
-      name: "Sarah Johnson",
-      avatar: "/diverse-woman-smiling.png",
-      lastMessage: "Thanks for organizing the clean water event!",
-      lastMessageTime: new Date(Date.now() - 5 * 60 * 1000),
-      unreadCount: 2,
-      isOnline: true,
-    },
-    {
-      id: "2",
-      name: "Clean Water Kenya Team",
-      avatar: "/water-drop-logo.png",
-      lastMessage: "Meeting scheduled for tomorrow at 3 PM",
-      lastMessageTime: new Date(Date.now() - 30 * 60 * 1000),
-      unreadCount: 0,
-      isOnline: false,
-      isGroup: true,
-    },
-    {
-      id: "3",
-      name: "Michael Chen",
-      avatar: "/asian-professional-man.png",
-      lastMessage: "Great work on the fundraising campaign",
-      lastMessageTime: new Date(Date.now() - 2 * 60 * 60 * 1000),
-      unreadCount: 1,
-      isOnline: true,
-    },
-    {
-      id: "4",
-      name: "Education Initiative",
-      avatar: "/books-education-logo.jpg",
-      lastMessage: "New volunteer applications received",
-      lastMessageTime: new Date(Date.now() - 24 * 60 * 60 * 1000),
-      unreadCount: 0,
-      isOnline: false,
-      isGroup: true,
-    },
-  ]
-
-  const messages: Message[] = [
-    {
-      id: "1",
-      senderId: "2",
-      senderName: "Sarah Johnson",
-      senderAvatar: "/diverse-woman-smiling.png",
-      content: "Hi! I saw your clean water initiative and I'm really interested in helping out.",
-      timestamp: new Date(Date.now() - 60 * 60 * 1000),
-      isRead: true,
-    },
-    {
-      id: "2",
-      senderId: "1",
-      senderName: "You",
-      senderAvatar: "/diverse-user-avatars.png",
-      content: "That's wonderful! We can always use more volunteers. What kind of skills do you have?",
-      timestamp: new Date(Date.now() - 55 * 60 * 1000),
-      isRead: true,
-    },
-    {
-      id: "3",
-      senderId: "2",
-      senderName: "Sarah Johnson",
-      senderAvatar: "/diverse-woman-smiling.png",
-      content: "I have experience in project management and I've worked with water purification systems before.",
-      timestamp: new Date(Date.now() - 50 * 60 * 1000),
-      isRead: true,
-    },
-    {
-      id: "4",
-      senderId: "1",
-      senderName: "You",
-      senderAvatar: "/diverse-user-avatars.png",
-      content:
-        "Perfect! That's exactly what we need. Would you be available for a call this week to discuss the project details?",
-      timestamp: new Date(Date.now() - 45 * 60 * 1000),
-      isRead: true,
-    },
-    {
-      id: "5",
-      senderId: "2",
-      senderName: "Sarah Johnson",
-      senderAvatar: "/diverse-woman-smiling.png",
-      content: "I'm free Tuesday or Wednesday afternoon.",
-      timestamp: new Date(Date.now() - 10 * 60 * 1000),
-      isRead: false,
-    },
-    {
-      id: "6",
-      senderId: "2",
-      senderName: "Sarah Johnson",
-      senderAvatar: "/diverse-woman-smiling.png",
-      content: "Thanks for organizing the clean water event!",
-      timestamp: new Date(Date.now() - 5 * 60 * 1000),
-      isRead: false,
-    },
-  ]
-
-  const selectedChatData = chats.find((chat) => chat.id === selectedChat)
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }
-
+  const { user, isLoading: authLoading, isAuthenticated } = useAuth()
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
+  const [isFirebaseConfigured, setIsFirebaseConfigured] = useState<boolean | null>(null)
+  const { conversations, startConversation, error: chatError } = useChat()
+  const [hasPermissionError, setHasPermissionError] = useState(false)
+  
+  // Check for permission errors
   useEffect(() => {
-    scrollToBottom()
-  }, [messages])
-
-  const handleSendMessage = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (message.trim()) {
-      console.log("[v0] Sending message:", message)
-      setMessage("")
+    if (chatError) {
+      const errorMsg = chatError.message || ''
+      const errorCode = (chatError as any)?.code || ''
+      if (
+        errorCode === 'permission-denied' ||
+        errorMsg.includes('Missing or insufficient permissions') ||
+        errorMsg.toLowerCase().includes('permission')
+      ) {
+        setHasPermissionError(true)
+      }
+    } else {
+      setHasPermissionError(false)
     }
+  }, [chatError])
+
+  // Redirect if not authenticated
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      router.push("/login")
+    }
+  }, [authLoading, isAuthenticated, router])
+
+  // Verify Firebase connection on mount
+  useEffect(() => {
+    const isConnected = verifyFirebaseConnection()
+    setIsFirebaseConfigured(isConnected)
+    if (!isConnected) {
+      console.error("[Chat] Firebase not configured. Please add Firebase environment variables.")
+    }
+  }, [])
+
+  // Handle user query param (from profile page message button)
+  useEffect(() => {
+    const usernameParam = searchParams?.get("user")
+    if (!usernameParam || !isAuthenticated || authLoading || !user?.id) return
+
+    const handleUserParam = async () => {
+      try {
+        // Fetch user profile to get user ID
+        const targetUser = await userService.getUserProfile(usernameParam)
+        if (targetUser.id.toString() === user.id.toString()) {
+          toast.error("You cannot message yourself")
+          router.replace("/chat")
+          return
+        }
+
+        // Check if conversation already exists with this user
+        const existingConv = conversations.find((conv) => {
+          if (conv.type === "private" && conv.participants.includes(targetUser.id.toString())) {
+            return conv.participants.length === 2 && conv.participants.includes(user.id.toString())
+          }
+          return false
+        })
+
+        if (existingConv) {
+          setSelectedConversationId(existingConv.id)
+          router.replace("/chat", { scroll: false })
+          return
+        }
+
+        // Start new conversation
+        const conversationId = await startConversation(targetUser.id.toString())
+        setSelectedConversationId(conversationId)
+        router.replace("/chat", { scroll: false })
+      } catch (error: any) {
+        console.error("[ChatPage] Error handling user param:", error)
+        toast.error(error.message || "Failed to start conversation")
+        router.replace("/chat", { scroll: false })
+      }
+    }
+
+    handleUserParam()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams?.get("user"), isAuthenticated, authLoading, user?.id])
+
+  // Auto-select first conversation if available and none selected
+  useEffect(() => {
+    if (conversations.length > 0 && !selectedConversationId && !searchParams.get("user")) {
+      setSelectedConversationId(conversations[0].id)
+    }
+  }, [conversations, selectedConversationId, searchParams])
+
+  // Get selected conversation data
+  const selectedConversation = conversations.find((conv) => conv.id === selectedConversationId)
+
+  if (authLoading) {
+    return (
+      <div className="h-screen bg-gradient-to-br from-background via-orange-50/30 to-peach-50/30 flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-muted-foreground">Loading chat...</p>
+        </div>
+      </div>
+    )
   }
 
+  if (!isAuthenticated) {
+    return null // Will redirect
+  }
 
-  return (
-    <div className="h-screen bg-gradient-to-br from-background via-orange-50/30 to-peach-50/30 flex">
-      {/* Chat List Sidebar */}
-      <div className="w-80 border-r border-border bg-background/80 backdrop-blur-sm flex flex-col">
-        <div className="p-4 border-b border-border">
-          <h1 className="text-xl font-bold text-foreground mb-4">Messages</h1>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search conversations..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10"
-            />
-          </div>
-        </div>
-
-        <ScrollArea className="flex-1">
-          <div className="p-2">
-            {chats.map((chat) => (
-              <div
-                key={chat.id}
-                onClick={() => setSelectedChat(chat.id)}
-                className={`p-3 rounded-lg cursor-pointer transition-colors mb-1 ${
-                  selectedChat === chat.id ? "bg-primary/10 border border-primary/20" : "hover:bg-muted/50"
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="relative">
-                    <Avatar className="h-12 w-12">
-                      <AvatarImage src={chat.avatar || "/placeholder.svg"} />
-                      <AvatarFallback>
-                        {chat.name
-                          .split(" ")
-                          .map((n) => n[0])
-                          .join("")}
-                      </AvatarFallback>
-                    </Avatar>
-                    {chat.isOnline && (
-                      <Circle className="absolute -bottom-1 -right-1 h-4 w-4 fill-green-500 text-green-500" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between mb-1">
-                      <h3 className="font-medium text-foreground truncate">
-                        {chat.name}
-                        {chat.isGroup && (
-                          <Badge variant="secondary" className="ml-2 text-xs">
-                            Group
-                          </Badge>
-                        )}
-                      </h3>
-                      <span className="text-xs text-muted-foreground">{formatTimestamp(chat.lastMessageTime)}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm text-muted-foreground truncate">{chat.lastMessage}</p>
-                      {chat.unreadCount > 0 && (
-                        <Badge className="h-5 w-5 p-0 flex items-center justify-center text-xs">
-                          {chat.unreadCount}
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </ScrollArea>
+  // Show permission error card if permission errors detected
+  if (hasPermissionError) {
+    return (
+      <div className="h-screen bg-gradient-to-br from-background via-orange-50/30 to-peach-50/30 flex items-center justify-center p-4">
+        <PermissionErrorCard />
       </div>
+    )
+  }
 
-      {/* Chat Area */}
-      <div className="flex-1 flex flex-col">
-        {selectedChatData ? (
-          <>
-            {/* Chat Header */}
-            <div className="p-4 border-b border-border bg-background/80 backdrop-blur-sm">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="relative">
-                    <Avatar className="h-10 w-10">
-                      <AvatarImage src={selectedChatData.avatar || "/placeholder.svg"} />
-                      <AvatarFallback>
-                        {selectedChatData.name
-                          .split(" ")
-                          .map((n) => n[0])
-                          .join("")}
-                      </AvatarFallback>
-                    </Avatar>
-                    {selectedChatData.isOnline && (
-                      <Circle className="absolute -bottom-1 -right-1 h-3 w-3 fill-green-500 text-green-500" />
-                    )}
-                  </div>
-                  <div>
-                    <h2 className="font-semibold text-foreground">{selectedChatData.name}</h2>
-                    <p className="text-sm text-muted-foreground">
-                      {selectedChatData.isOnline ? "Online" : "Last seen recently"}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button variant="ghost" size="sm">
-                    <Phone className="h-4 w-4" />
-                  </Button>
-                  <Button variant="ghost" size="sm">
-                    <Video className="h-4 w-4" />
-                  </Button>
-                  <Button variant="ghost" size="sm">
-                    <MoreVertical className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
+  // Show Firebase setup message if not configured
+  if (isFirebaseConfigured === false) {
+    return (
+      <div className="h-screen bg-gradient-to-br from-background via-orange-50/30 to-peach-50/30 flex items-center justify-center p-4">
+        <Card className="max-w-2xl w-full">
+          <CardHeader>
+            <div className="flex items-center gap-3 mb-2">
+              <AlertCircle className="h-6 w-6 text-orange-500" />
+              <CardTitle>Firebase Configuration Required</CardTitle>
             </div>
-
-            {/* Messages */}
-            <ScrollArea className="flex-1 p-4">
-              <div className="space-y-4">
-                {messages.map((msg) => (
-                  <div key={msg.id} className={`flex gap-3 ${msg.senderId === "1" ? "flex-row-reverse" : "flex-row"}`}>
-                    {msg.senderId !== "1" && (
-                      <Avatar className="h-8 w-8">
-                        <AvatarImage src={msg.senderAvatar || "/placeholder.svg"} />
-                        <AvatarFallback>{msg.senderName[0]}</AvatarFallback>
-                      </Avatar>
-                    )}
-                    <div
-                      className={`max-w-xs lg:max-w-md px-4 py-2 rounded-2xl ${
-                        msg.senderId === "1" ? "bg-primary text-primary-foreground" : "bg-muted"
-                      }`}
-                    >
-                      <p className="text-sm">{msg.content}</p>
-                      <p
-                        className={`text-xs mt-1 ${
-                          msg.senderId === "1" ? "text-primary-foreground/70" : "text-muted-foreground"
-                        }`}
-                      >
-                        {formatTimestamp(msg.timestamp)}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-                <div ref={messagesEndRef} />
-              </div>
-            </ScrollArea>
-
-            {/* Message Input */}
-            <div className="p-4 border-t border-border bg-background/80 backdrop-blur-sm">
-              <form onSubmit={handleSendMessage} className="flex items-center gap-2">
-                <Button type="button" variant="ghost" size="sm">
-                  <Paperclip className="h-4 w-4" />
-                </Button>
-                <div className="flex-1 relative">
-                  <Input
-                    value={message}
-                    onChange={(e) => setMessage(e.target.value)}
-                    placeholder="Type a message..."
-                    className="pr-10"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="absolute right-2 top-1/2 transform -translate-y-1/2"
+            <CardDescription>
+              Chat functionality requires Firebase Firestore to be configured
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="bg-muted p-4 rounded-lg space-y-3">
+              <p className="font-medium">To enable chat, please:</p>
+              <ol className="list-decimal list-inside space-y-2 text-sm text-muted-foreground">
+                <li>Create a Firebase project at{" "}
+                  <Link 
+                    href="https://console.firebase.google.com/" 
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary hover:underline inline-flex items-center gap-1"
                   >
-                    <Smile className="h-4 w-4" />
-                  </Button>
-                </div>
-                <Button type="submit" size="sm" disabled={!message.trim()}>
-                  <Send className="h-4 w-4" />
-                </Button>
-              </form>
+                    Firebase Console
+                    <ExternalLink className="h-3 w-3" />
+                  </Link>
+                </li>
+                <li>Enable Firestore Database in your Firebase project</li>
+                <li>Add the following environment variables to your <code className="bg-background px-1 py-0.5 rounded text-xs">.env.local</code> file:</li>
+              </ol>
+              <div className="bg-background p-3 rounded border border-border">
+                <pre className="text-xs overflow-x-auto">
+{`NEXT_PUBLIC_FIREBASE_API_KEY=your_api_key
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=your-project-id
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your-project.appspot.com
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
+NEXT_PUBLIC_FIREBASE_APP_ID=your_app_id`}
+                </pre>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                You can find these values in your Firebase project settings under "Your apps" → Web app config.
+              </p>
+              <p className="text-sm text-muted-foreground">
+                After adding the environment variables, restart your development server.
+              </p>
             </div>
-          </>
-        ) : (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center">
-              <h3 className="text-lg font-medium text-foreground mb-2">Select a conversation</h3>
-              <p className="text-muted-foreground">Choose a chat from the sidebar to start messaging</p>
+            <div className="pt-2">
+              <p className="text-xs text-muted-foreground">
+                See <code className="bg-muted px-1 py-0.5 rounded">CHAT_IMPLEMENTATION.md</code> for detailed setup instructions.
+              </p>
             </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+      return (
+        <div className="h-screen bg-gradient-to-br from-background via-orange-50/30 to-peach-50/30 flex flex-col">
+          {/* Notification Manager */}
+          <ChatNotificationManager />
+          
+          {/* Header with back button */}
+          <div className="border-b border-border bg-background/80 backdrop-blur-sm px-4 py-3 flex items-center gap-4">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => router.push("/feed")}
+              className="gap-2"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back to Feed
+            </Button>
           </div>
-        )}
+
+      <div className="flex-1 flex overflow-hidden">
+        <ChatSidebar
+          selectedConversationId={selectedConversationId}
+          onSelectConversation={setSelectedConversationId}
+        />
+        <div className="flex-1 flex flex-col">
+          <ChatWindow
+            conversationId={selectedConversationId}
+            conversationData={selectedConversation}
+          />
+          <MessageInput conversationId={selectedConversationId} />
+        </div>
       </div>
     </div>
   )

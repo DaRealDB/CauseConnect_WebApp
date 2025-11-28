@@ -848,6 +848,45 @@ export const squadService = {
   },
 
   /**
+   * Update squad (admin only)
+   */
+  async updateSquad(squadId: string | number, data: { name?: string; description?: string; avatar?: File }): Promise<Squad> {
+    if (data.avatar) {
+      const formData = new FormData()
+      if (data.name) formData.append('name', data.name)
+      if (data.description !== undefined) formData.append('description', data.description || '')
+      formData.append('avatar', data.avatar)
+      return apiClient.upload<Squad>(`/squads/${squadId}`, formData, { method: 'PATCH' })
+    }
+
+    return apiClient.patch<Squad>(`/squads/${squadId}`, {
+      ...(data.name && { name: data.name }),
+      ...(data.description !== undefined && { description: data.description }),
+    })
+  },
+
+  /**
+   * Delete squad (admin only)
+   */
+  async deleteSquad(squadId: string | number): Promise<void> {
+    return apiClient.delete(`/squads/${squadId}`)
+  },
+
+  /**
+   * Remove member from squad (admin only)
+   */
+  async removeMember(squadId: string | number, memberId: string | number): Promise<void> {
+    return apiClient.delete(`/squads/${squadId}/members/${memberId}`)
+  },
+
+  /**
+   * Change member role (admin only)
+   */
+  async changeMemberRole(squadId: string | number, memberId: string | number, role: 'admin' | 'moderator' | 'member'): Promise<void> {
+    return apiClient.patch(`/squads/${squadId}/members/${memberId}/role`, { role })
+  },
+
+  /**
    * Get squad members
    */
   async getSquadMembers(squadId: string | number, page?: number, limit?: number): Promise<PaginatedResponse<SquadMember>> {

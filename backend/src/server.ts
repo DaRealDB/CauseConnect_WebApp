@@ -18,6 +18,7 @@ import customFeedRoutes from './routes/customFeed.routes'
 import exploreRoutes from './routes/explore.routes'
 import tagRoutes from './routes/tag.routes'
 import paymentRoutes from './routes/payment.routes'
+import chatRoutes from './routes/chat.routes'
 
 const app: Express = express()
 
@@ -56,6 +57,7 @@ app.use('/api/explore', exploreRoutes)
 app.use('/api/tags', tagRoutes)
 // Stripe webhook needs raw body, so we handle it separately
 app.use('/api/payments', paymentRoutes)
+app.use('/api/chat', chatRoutes)
 
 // 404 handler
 app.use((_req: Request, res: Response) => {

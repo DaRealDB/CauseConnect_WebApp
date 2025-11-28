@@ -1,0 +1,25 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /conversations/{conversationId} {
+      allow read, write: if true;
+      match /messages/{messageId} {
+        allow read, write: if true;
+      }
+      match /typing/{typingId} {
+        allow read, write: if true;
+      }
+    }
+    match /presence/{userId} {
+      allow read, write: if true;
+    }
+    match /blocked/{blockId} {
+      allow read, write: if true;
+    }
+    match /muted/{muteId} {
+      allow read, write: if true;
+    }
+  }
+}
+
+

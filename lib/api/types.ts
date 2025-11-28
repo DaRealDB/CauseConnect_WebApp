@@ -360,6 +360,10 @@ export interface UserSettings {
     allowAwards: boolean
     showFeedbackButtons: boolean
   }
+  volunteering?: {
+    availableForVolunteering: boolean
+    preferredActivities: string[]
+  }
 }
 
 // Squad Types

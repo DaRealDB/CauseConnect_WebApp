@@ -287,6 +287,7 @@ export default function SettingsPage() {
         setPersonalization({
           ...personalizationData,
           country: country?.code || "US",
+          currency: personalizationData.currency || "USD",
           region: personalizationData.region || "",
           interestTags: validTags,
           accessibility: personalizationData.accessibility || {
@@ -519,7 +520,16 @@ export default function SettingsPage() {
       const users = await userService.searchUsers(query, 10)
       // Filter out already blocked users and current user
       const blockedUserIds = new Set(blockedUsers.map(u => u.userId))
-      const filtered = users.filter(u => !blockedUserIds.has(u.id) && u.id !== user?.id)
+      const filtered = users
+        .filter(u => !blockedUserIds.has(u.id.toString()) && u.id.toString() !== user?.id?.toString())
+        .map(u => ({
+          id: u.id.toString(),
+          username: u.username,
+          firstName: u.firstName || "",
+          lastName: u.lastName || "",
+          avatar: u.avatar,
+          verified: u.verified || false,
+        }))
       setSearchResults(filtered)
     } catch (error: any) {
       console.error("Failed to search users:", error)
@@ -564,14 +574,57 @@ export default function SettingsPage() {
   }
 
   const loadSquads = async () => {
-    if (!user) return
+    if (!user) {
+      console.log("[loadSquads] User not available, skipping")
+      return
+    }
+    
     try {
       setIsLoadingSquads(true)
+      console.log("[loadSquads] Fetching squads for user:", user.id)
       const userSquads = await squadService.getSquads()
-      setSquads(userSquads)
+      console.log("[loadSquads] Squads loaded successfully:", userSquads?.length || 0, "squads")
+      setSquads(userSquads || [])
     } catch (error: any) {
-      console.error("Failed to load squads:", error)
-      toast.error(error.message || "Failed to load squads")
+      // Enhanced error logging - serialize error object properly
+      try {
+        const errorDetails = {
+          message: error?.message,
+          status: error?.status,
+          statusText: error?.statusText,
+          stack: error?.stack,
+          originalError: error?.originalError,
+          name: error?.name,
+          // Try JSON.stringify for full error object
+          errorString: JSON.stringify(error, Object.getOwnPropertyNames(error)),
+        }
+        
+        console.error("Failed to load squads - Full error details:", errorDetails)
+        console.error("Failed to load squads - Error type:", typeof error)
+        console.error("Failed to load squads - Error constructor:", error?.constructor?.name)
+        console.error("Failed to load squads - Error keys:", error ? Object.keys(error) : 'null/undefined')
+        console.error("Failed to load squads - Raw error:", error)
+      } catch (logError) {
+        console.error("Failed to log error details:", logError)
+        console.error("Original error:", error)
+      }
+      
+      // Extract error message from multiple possible sources
+      const errorMessage = 
+        error?.message || 
+        error?.statusText || 
+        error?.originalError?.message ||
+        (error?.status === 401 ? "Session expired. Please log in again." : null) ||
+        (error?.status === 403 ? "You don't have permission to view squads." : null) ||
+        (error?.status === 404 ? "Squads endpoint not found." : null) ||
+        (error?.status === 500 ? "Server error. Please try again later." : null) ||
+        (error?.status === 0 ? "Network error. Please check your connection." : null) ||
+        "Failed to load squads. Please try again."
+      
+      toast.error(errorMessage)
+      
+      // Set empty array on error to prevent UI issues
+      setSquads([])
     } finally {
       setIsLoadingSquads(false)
     }
@@ -611,9 +664,24 @@ export default function SettingsPage() {
     try {
       setIsLoadingImpactStats(true)
       const stats = await settingsService.getImpactStats()
-      setImpactStats(stats)
+      setImpactStats(stats || {
+        totalDonated: 0,
+        causesSupported: 0,
+        donationCount: 0,
+      })
     } catch (error: any) {
-      console.error("Failed to load impact stats:", error)
+      console.error("Failed to load impact stats:", {
+        error,
+        message: error?.message,
+        status: error?.status,
+        stack: error?.stack,
+      })
+      // Set default stats on error
+      setImpactStats({
+        totalDonated: 0,
+        causesSupported: 0,
+        donationCount: 0,
+      })
       // Don't show error toast - stats might not exist yet
     } finally {
       setIsLoadingImpactStats(false)
@@ -622,16 +690,33 @@ export default function SettingsPage() {
 
   // Load volunteering preferences from settings
   const loadVolunteeringPreferences = async () => {
+    if (!user) return
     try {
       const settings = await settingsService.getSettings()
-      if (settings.volunteering) {
+      if (settings?.volunteering) {
         setVolunteeringPreferences({
           availableForVolunteering: settings.volunteering.availableForVolunteering ?? false,
           preferredActivities: settings.volunteering.preferredActivities || [],
         })
+      } else {
+        // Set default values if volunteering settings don't exist
+        setVolunteeringPreferences({
+          availableForVolunteering: false,
+          preferredActivities: [],
+        })
       }
     } catch (error: any) {
-      console.error("Failed to load volunteering preferences:", error)
+      console.error("Failed to load volunteering preferences:", {
+        error,
+        message: error?.message,
+        status: error?.status,
+        stack: error?.stack,
+      })
+      // Set default values on error
+      setVolunteeringPreferences({
+        availableForVolunteering: false,
+        preferredActivities: [],
+      })
     }
   }
 
@@ -1031,7 +1116,7 @@ export default function SettingsPage() {
                   <CardContent>
                     <Select
                       value={privacy.activityVisibility}
-                      onValueChange={(value) => setPrivacy({ ...privacy, activityVisibility: value })}
+                      onValueChange={(value) => setPrivacy({ ...privacy, activityVisibility: value as 'public' | 'friends' | 'private' })}
                     >
                       <SelectTrigger>
                         <SelectValue />

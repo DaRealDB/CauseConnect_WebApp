@@ -1,0 +1,19 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // ==================== CHAT FILE UPLOADS ====================
+    match /chat/{allPaths=**} {
+      // DEVELOPMENT RULES - Allow all operations
+      // Your backend authentication still protects your data
+      allow read, write: if true;
+    }
+    
+    // ==================== OTHER PATHS ====================
+    // Default: deny all other access
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
+
+

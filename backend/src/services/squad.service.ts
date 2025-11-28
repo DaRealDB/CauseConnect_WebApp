@@ -273,5 +273,178 @@ export const squadService = {
       },
     }
   },
+
+  /**
+   * Verify user is admin of a squad
+   */
+  async verifyAdmin(squadId: string, userId: string) {
+    const member = await prisma.squadMember.findFirst({
+      where: {
+        squadId,
+        userId,
+        role: 'admin',
+      },
+    })
+
+    if (!member) {
+      throw createError('You must be an admin to perform this action', 403)
+    }
+
+    return true
+  },
+
+  /**
+   * Update squad (admin only)
+   */
+  async updateSquad(squadId: string, userId: string, data: { name?: string; description?: string }, file?: Express.Multer.File) {
+    // Verify user is admin
+    await this.verifyAdmin(squadId, userId)
+
+    const updateData: any = {}
+    if (data.name !== undefined) updateData.name = data.name
+    if (data.description !== undefined) updateData.description = data.description
+    if (file) updateData.avatar = `/uploads/${file.filename}`
+
+    const squad = await prisma.squad.update({
+      where: { id: squadId },
+      data: updateData,
+      include: {
+        creator: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            username: true,
+            avatar: true,
+          },
+        },
+        _count: {
+          select: {
+            members: true,
+            posts: true,
+          },
+        },
+      },
+    })
+
+    const role = 'admin' // User is admin if we got here
+
+    return {
+      id: squad.id,
+      name: squad.name,
+      description: squad.description,
+      avatar: squad.avatar,
+      createdAt: squad.createdAt,
+      creator: {
+        id: squad.creator.id,
+        name: `${squad.creator.firstName} ${squad.creator.lastName}`.trim() || squad.creator.username,
+        username: squad.creator.username,
+        avatar: squad.creator.avatar,
+      },
+      members: squad._count.members,
+      posts: squad._count.posts,
+      role,
+      isMember: true,
+    }
+  },
+
+  /**
+   * Delete squad (admin only)
+   */
+  async deleteSquad(squadId: string, userId: string) {
+    // Verify user is admin
+    await this.verifyAdmin(squadId, userId)
+
+    // Delete squad (cascade will delete all related data)
+    await prisma.squad.delete({
+      where: { id: squadId },
+    })
+
+    return true
+  },
+
+  /**
+   * Remove member from squad (admin only)
+   */
+  async removeMember(squadId: string, adminUserId: string, memberUserId: string) {
+    // Verify admin
+    await this.verifyAdmin(squadId, adminUserId)
+
+    // Check if trying to remove self
+    if (adminUserId === memberUserId) {
+      throw createError('You cannot remove yourself from the squad. Please delete the squad or transfer admin first.', 400)
+    }
+
+    // Check if member exists
+    const member = await prisma.squadMember.findFirst({
+      where: {
+        squadId,
+        userId: memberUserId,
+      },
+    })
+
+    if (!member) {
+      throw createError('Member not found in squad', 404)
+    }
+
+    // Remove member
+    await prisma.squadMember.deleteMany({
+      where: {
+        squadId,
+        userId: memberUserId,
+      },
+    })
+
+    return true
+  },
+
+  /**
+   * Change member role (admin only)
+   */
+  async changeMemberRole(squadId: string, adminUserId: string, memberUserId: string, newRole: 'admin' | 'moderator' | 'member') {
+    // Verify admin
+    await this.verifyAdmin(squadId, adminUserId)
+
+    // Check if member exists
+    const member = await prisma.squadMember.findFirst({
+      where: {
+        squadId,
+        userId: memberUserId,
+      },
+    })
+
+    if (!member) {
+      throw createError('Member not found in squad', 404)
+    }
+
+    // Prevent removing your own admin role (at least one admin must exist)
+    if (adminUserId === memberUserId && newRole !== 'admin') {
+      // Check if there are other admins
+      const otherAdmins = await prisma.squadMember.findMany({
+        where: {
+          squadId,
+          userId: { not: adminUserId },
+          role: 'admin',
+        },
+      })
+
+      if (otherAdmins.length === 0) {
+        throw createError('You cannot remove your own admin role. Please promote another admin first.', 400)
+      }
+    }
+
+    // Update role
+    await prisma.squadMember.updateMany({
+      where: {
+        squadId,
+        userId: memberUserId,
+      },
+      data: {
+        role: newRole,
+      },
+    })
+
+    return true
+  },
 }
 

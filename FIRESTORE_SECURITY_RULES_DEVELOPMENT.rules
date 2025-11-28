@@ -1,0 +1,60 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ==================== CONVERSATIONS ====================
+    match /conversations/{conversationId} {
+      
+      // Allow read if user is in participants array
+      // Since we use JWT auth (not Firebase Auth), we check participant membership
+      allow read: if true; // For development - check participants client-side
+      
+      // Allow create for authenticated users
+      allow create: if true; // For development - validate in backend/Firebase functions
+      
+      // Allow update if user is in participants
+      allow update: if true; // For development - validate in backend/Firebase functions
+      
+      // Allow delete for participants
+      allow delete: if true; // For development - validate in backend/Firebase functions
+      
+      // ==================== MESSAGES ====================
+      match /messages/{messageId} {
+        
+        // Allow read if user is participant in conversation
+        allow read: if true; // For development - validate client-side
+        
+        // Allow create if user is participant and is the sender
+        allow create: if true; // For development - validate in backend
+        
+        // Allow update if user is sender or participant (for readBy updates)
+        allow update: if true; // For development - validate in backend
+        
+        // Allow delete (soft delete) if user is sender
+        allow delete: if true; // For development - validate in backend
+      }
+      
+      // ==================== TYPING INDICATORS ====================
+      match /typing/{typingId} {
+        allow read, write: if true; // For development
+      }
+    }
+    
+    // ==================== USER PRESENCE ====================
+    match /presence/{userId} {
+      allow read, write: if true; // For development
+    }
+    
+    // ==================== BLOCKED USERS ====================
+    match /blocked/{blockId} {
+      allow read, write: if true; // For development
+    }
+    
+    // ==================== MUTED CONVERSATIONS ====================
+    match /muted/{muteId} {
+      allow read, write: if true; // For development
+    }
+  }
+}
+
+

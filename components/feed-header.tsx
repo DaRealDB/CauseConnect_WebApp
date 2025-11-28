@@ -42,6 +42,7 @@ import { useRouter } from "next/navigation"
 import { notificationService, userService, squadService } from "@/lib/api/services"
 import type { User, Squad } from "@/lib/api/types"
 import { getImageUrl } from "@/lib/utils"
+import { ChatBadge } from "@/components/chat/ChatBadge"
 
 interface FeedHeaderProps {
   searchQuery?: string
@@ -253,9 +254,10 @@ export function FeedHeader({ searchQuery: externalSearchQuery, onSearchChange: e
             </Button>
 
             {/* Messages */}
-            <Button variant="ghost" size="sm" asChild>
+            <Button variant="ghost" size="sm" className="relative" asChild>
               <Link href="/chat">
                 <MessageCircle className="w-4 h-4" />
+                <ChatBadge />
               </Link>
             </Button>
 
@@ -442,6 +444,7 @@ export function FeedHeader({ searchQuery: externalSearchQuery, onSearchChange: e
                   <Link href="/chat">
                     <MessageCircle className="w-4 h-4 mr-2" />
                     Messages
+                    <ChatBadge className="ml-auto" />
                   </Link>
                 </Button>
                 <Button variant="ghost" className="justify-start" asChild>

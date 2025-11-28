@@ -139,28 +139,47 @@ class ApiClient {
       }
 
       // Parse JSON response
-      const data = await response.json()
-      return data as T
-    } catch (error) {
-      // Re-throw ApiError
+      let data: T
+      try {
+        data = await response.json()
+      } catch (parseError) {
+        // If JSON parsing fails, throw a more descriptive error
+        console.error('[API Client] Failed to parse JSON response:', {
+          url,
+          status: response.status,
+          statusText: response.statusText,
+          parseError,
+        })
+        throw {
+          message: 'Invalid response format from server',
+          status: response.status,
+        } as ApiError
+      }
+      
+      return data
+    } catch (error: any) {
+      // Re-throw ApiError if it's already an ApiError
       if (error && typeof error === 'object' && 'status' in error) {
         throw error
       }
 
       // Log the actual error for debugging
-      if (process.env.NODE_ENV === 'development') {
-        console.error('API Request failed:', {
-          url,
-          error: error instanceof Error ? error.message : error,
-        })
-      }
+      console.error('[API Client] Request failed:', {
+        url,
+        error,
+        errorType: typeof error,
+        errorMessage: error?.message,
+        errorName: error?.name,
+        errorStack: error?.stack,
+      })
 
       // Handle network errors - status 0 means network error
       // Don't let these trigger auth token removal
       throw {
-        message: `Network error. Please check your connection.`,
+        message: error?.message || 'Network error. Please check your connection.',
         status: 0,
-      } as ApiError
+        originalError: error,
+      } as ApiError & { originalError?: any }
     }
   }
 
@@ -232,7 +251,7 @@ class ApiClient {
 
     const config: RequestInit = {
       ...options,
-      method: 'POST',
+      method: options?.method || 'POST',
       headers,
       body: formData,
     }

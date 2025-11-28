@@ -205,6 +205,61 @@ export const squadController = {
       next(error)
     }
   },
+
+  // Squad Management (Admin only)
+  async updateSquad(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { id } = req.params
+      const file = req.file
+      const { name, description } = req.body
+      
+      const updateData: { name?: string; description?: string } = {}
+      if (name !== undefined) updateData.name = name
+      if (description !== undefined) updateData.description = description
+
+      const squad = await squadService.updateSquad(id, req.userId!, updateData, file)
+      res.json(squad)
+    } catch (error: any) {
+      next(error)
+    }
+  },
+
+  async deleteSquad(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { id } = req.params
+      await squadService.deleteSquad(id, req.userId!)
+      res.json({ message: 'Squad deleted successfully' })
+    } catch (error: any) {
+      next(error)
+    }
+  },
+
+  async removeMember(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { id: squadId, memberId } = req.params
+      await squadService.removeMember(squadId, req.userId!, memberId)
+      res.json({ message: 'Member removed successfully' })
+    } catch (error: any) {
+      next(error)
+    }
+  },
+
+  async changeMemberRole(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { id: squadId, memberId } = req.params
+      const { role } = req.body
+
+      if (!role || !['admin', 'moderator', 'member'].includes(role)) {
+        res.status(400).json({ message: 'Invalid role. Must be admin, moderator, or member' })
+        return
+      }
+
+      await squadService.changeMemberRole(squadId, req.userId!, memberId, role as 'admin' | 'moderator' | 'member')
+      res.json({ message: 'Member role updated successfully' })
+    } catch (error: any) {
+      next(error)
+    }
+  },
 }
 
 

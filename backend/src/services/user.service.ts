@@ -397,6 +397,40 @@ export const userService = {
     }))
   },
 
+  /**
+   * Get user by ID (for chat participant data)
+   */
+  async getUserById(userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        username: true,
+        firstName: true,
+        lastName: true,
+        avatar: true,
+        verified: true,
+        bio: true,
+        email: true,
+      },
+    })
+
+    if (!user) {
+      throw createError('User not found', 404)
+    }
+
+    return {
+      id: user.id,
+      username: user.username,
+      name: `${user.firstName} ${user.lastName}`.trim() || user.username,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      avatar: user.avatar,
+      verified: user.verified,
+      bio: user.bio,
+    }
+  },
+
   async getFollowingUsers(userId: string, page: number = 1, limit: number = 20) {
     const skip = (page - 1) * limit
 
