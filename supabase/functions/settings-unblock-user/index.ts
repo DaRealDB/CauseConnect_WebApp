@@ -1,14 +1,14 @@
 /**
- * Unbookmark Event Edge Function
- * DELETE /functions/v1/event-unbookmark
- * Body: { eventId: string }
+ * Unblock User Edge Function
+ * DELETE /functions/v1/settings-unblock-user
+ * Body: { userId: string }
  */
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { handleCors, addCorsHeaders } from '../_shared/cors.ts'
 import { getUserFromRequest } from '../_shared/supabase.ts'
 import { handleError, AppError } from '../_shared/errors.ts'
-import { query, queryOne } from '../_shared/db.ts'
+import { queryOne, query } from '../_shared/db.ts'
 
 serve(async (req: Request) => {
   const corsResponse = handleCors(req)
@@ -25,37 +25,35 @@ serve(async (req: Request) => {
     }
 
     const body = await req.json().catch(() => ({}))
-    const eventId = body.eventId || new URL(req.url).searchParams.get('eventId')
+    const userId = body.userId || new URL(req.url).searchParams.get('userId')
 
-    if (!eventId) {
-      throw new AppError('eventId is required', 400)
+    if (!userId) {
+      throw new AppError('User ID is required', 400)
     }
 
-    // Toggle bookmark (delete if exists)
+    // Check if blocked
     const existing = await queryOne(
-      `SELECT id FROM bookmarks WHERE "eventId" = $1 AND "userId" = $2 AND "postId" IS NULL`,
-      [eventId, user.id]
+      `SELECT id FROM blocks WHERE "userId" = $1 AND "blockedUserId" = $2`,
+      [user.id, userId]
     )
 
-    if (existing) {
-      await query(
-        `DELETE FROM bookmarks WHERE id = $1`,
-        [existing.id]
-      )
+    if (!existing) {
+      throw new AppError('User is not blocked', 400)
     }
 
+    // Unblock
+    await query(
+      `DELETE FROM blocks WHERE "userId" = $1 AND "blockedUserId" = $2`,
+      [user.id, userId]
+    )
+
     return addCorsHeaders(
-      new Response(
-        JSON.stringify({
-          success: true,
-          message: 'Event unbookmarked',
-        }),
-        {
-          headers: { 'Content-Type': 'application/json' },
-        }
-      )
+      new Response(JSON.stringify({ message: 'User unblocked successfully' }), {
+        headers: { 'Content-Type': 'application/json' },
+      })
     )
   } catch (error) {
     return addCorsHeaders(handleError(error))
   }
 })
+

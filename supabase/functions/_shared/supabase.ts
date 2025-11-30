@@ -6,7 +6,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0'
 
 export function createSupabaseClient(request: Request) {
   const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
-  const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+  // Try SUPABASE_SERVICE_ROLE_KEY first (auto-provided), fallback to SERVICE_ROLE_KEY (manually set)
+  const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? Deno.env.get('SERVICE_ROLE_KEY') ?? ''
 
   // Get authorization header
   const authHeader = request.headers.get('Authorization')

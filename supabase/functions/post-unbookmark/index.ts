@@ -1,7 +1,7 @@
 /**
- * Unbookmark Event Edge Function
- * DELETE /functions/v1/event-unbookmark
- * Body: { eventId: string }
+ * Unbookmark Post Edge Function
+ * DELETE /functions/v1/post-unbookmark
+ * Body: { postId: string }
  */
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
@@ -25,16 +25,16 @@ serve(async (req: Request) => {
     }
 
     const body = await req.json().catch(() => ({}))
-    const eventId = body.eventId || new URL(req.url).searchParams.get('eventId')
+    const postId = body.postId || new URL(req.url).searchParams.get('postId')
 
-    if (!eventId) {
-      throw new AppError('eventId is required', 400)
+    if (!postId) {
+      throw new AppError('postId is required', 400)
     }
 
-    // Toggle bookmark (delete if exists)
+    // Toggle bookmark (same as bookmarkPost - delete if exists)
     const existing = await queryOne(
-      `SELECT id FROM bookmarks WHERE "eventId" = $1 AND "userId" = $2 AND "postId" IS NULL`,
-      [eventId, user.id]
+      `SELECT id FROM bookmarks WHERE "postId" = $1 AND "userId" = $2 AND "eventId" IS NULL`,
+      [postId, user.id]
     )
 
     if (existing) {
@@ -48,7 +48,7 @@ serve(async (req: Request) => {
       new Response(
         JSON.stringify({
           success: true,
-          message: 'Event unbookmarked',
+          message: 'Post unbookmarked',
         }),
         {
           headers: { 'Content-Type': 'application/json' },
@@ -59,3 +59,4 @@ serve(async (req: Request) => {
     return addCorsHeaders(handleError(error))
   }
 })
+

@@ -177,40 +177,55 @@ export const authService = {
    * Send verification code to email
    */
   async sendVerificationCode(email: string, type: 'email_verification' | 'password_reset' = 'email_verification'): Promise<{ success: boolean; message: string }> {
-    return apiClient.post<{ success: boolean; message: string }>('/auth/send-verification', { email, type })
+    return routeRequest<{ success: boolean; message: string }>(
+      'auth-send-verification',
+      '/auth/send-verification',
+      { method: 'POST', data: { email, type } }
+    )
   },
 
   /**
    * Verify email with OTP code
    */
   async verifyEmail(email: string, otp: string): Promise<{ success: boolean; message: string }> {
-    return apiClient.post<{ success: boolean; message: string }>('/auth/verify-email', { email, otp })
+    return routeRequest<{ success: boolean; message: string }>(
+      'auth-verify-email',
+      '/auth/verify-email',
+      { method: 'POST', data: { email, otp } }
+    )
   },
 
   /**
    * Send password reset code
    */
   async sendPasswordResetCode(email: string): Promise<{ success: boolean; message: string }> {
-    return apiClient.post<{ success: boolean; message: string }>('/auth/forgot-password', { email })
+    return routeRequest<{ success: boolean; message: string }>(
+      'auth-forgot-password',
+      '/auth/forgot-password',
+      { method: 'POST', data: { email } }
+    )
   },
 
   /**
    * Verify password reset code
    */
   async verifyPasswordResetCode(email: string, otp: string): Promise<{ success: boolean; message: string }> {
-    return apiClient.post<{ success: boolean; message: string }>('/auth/verify-reset', { email, otp })
+    return routeRequest<{ success: boolean; message: string }>(
+      'auth-verify-reset',
+      '/auth/verify-reset',
+      { method: 'POST', data: { email, otp } }
+    )
   },
 
   /**
    * Reset password after verification
    */
   async resetPassword(email: string, otp: string, newPassword: string, confirmPassword: string): Promise<{ success: boolean; message: string }> {
-    return apiClient.post<{ success: boolean; message: string }>('/auth/reset-password', {
-      email,
-      otp,
-      newPassword,
-      confirmPassword,
-    })
+    return routeRequest<{ success: boolean; message: string }>(
+      'auth-reset-password',
+      '/auth/reset-password',
+      { method: 'POST', data: { email, otp, newPassword, confirmPassword } }
+    )
   },
 }
 
@@ -515,7 +530,11 @@ export const eventService = {
    * Unbookmark an event
    */
   async unbookmarkEvent(eventId: string | number): Promise<void> {
-    return apiClient.delete(`/events/${eventId}/bookmark`)
+    return routeRequest<void>(
+      'event-unbookmark',
+      `/events/${eventId}/bookmark`,
+      { method: 'DELETE', data: { eventId: eventId.toString() } }
+    )
   },
 
   /**
@@ -539,18 +558,27 @@ export const eventService = {
     page?: number
     limit?: number
   }): Promise<PaginatedResponse<any>> {
-    const queryParams = new URLSearchParams()
-    if (params?.page) queryParams.append('page', params.page.toString())
-    if (params?.limit) queryParams.append('limit', params.limit.toString())
-    const query = queryParams.toString()
-    return apiClient.get<PaginatedResponse<any>>(`/events/${eventId}/participants${query ? `?${query}` : ''}`)
+    const queryParams: Record<string, string> = { eventId: eventId.toString() }
+    if (params?.page) queryParams.page = params.page.toString()
+    if (params?.limit) queryParams.limit = params.limit.toString()
+
+    const expressParams = new URLSearchParams({ ...queryParams })
+    return routeRequest<PaginatedResponse<any>>(
+      'event-participants',
+      `/events/${eventId}/participants?${expressParams.toString()}`,
+      { method: 'GET', queryParams }
+    )
   },
 
   /**
    * Get event analytics
    */
   async getEventAnalytics(eventId: string | number): Promise<any> {
-    return apiClient.get<any>(`/events/${eventId}/analytics`)
+    return routeRequest<any>(
+      'event-analytics',
+      `/events/${eventId}/analytics`,
+      { method: 'GET', queryParams: { eventId: eventId.toString() } }
+    )
   },
 }
 
@@ -622,7 +650,11 @@ export const postService = {
    * Unlike a post
    */
   async unlikePost(postId: number | string): Promise<void> {
-    return apiClient.delete(`/posts/${postId}/like`)
+    return routeRequest<void>(
+      'post-unlike',
+      `/posts/${postId}/like`,
+      { method: 'DELETE', data: { postId: postId.toString() } }
+    )
   },
 
   /**
@@ -640,7 +672,11 @@ export const postService = {
    * Unbookmark a post
    */
   async unbookmarkPost(postId: number | string): Promise<void> {
-    return apiClient.delete(`/posts/${postId}/bookmark`)
+    return routeRequest<void>(
+      'post-unbookmark',
+      `/posts/${postId}/bookmark`,
+      { method: 'DELETE', data: { postId: postId.toString() } }
+    )
   },
 
   /**
@@ -650,11 +686,16 @@ export const postService = {
     page?: number
     limit?: number
   }): Promise<PaginatedResponse<Post>> {
-    const queryParams = new URLSearchParams()
-    if (params?.page) queryParams.append('page', params.page.toString())
-    if (params?.limit) queryParams.append('limit', params.limit.toString())
-    const query = queryParams.toString()
-    return apiClient.get<PaginatedResponse<Post>>(`/posts/bookmarked${query ? `?${query}` : ''}`)
+    const queryParams: Record<string, string> = {}
+    if (params?.page) queryParams.page = params.page.toString()
+    if (params?.limit) queryParams.limit = params.limit.toString()
+
+    const expressParams = new URLSearchParams(queryParams)
+    return routeRequest<PaginatedResponse<Post>>(
+      'post-bookmarked',
+      `/posts/bookmarked?${expressParams.toString()}`,
+      { method: 'GET', queryParams }
+    )
   },
 
   /**
@@ -671,11 +712,16 @@ export const postService = {
     page?: number
     limit?: number
   }): Promise<PaginatedResponse<any>> {
-    const queryParams = new URLSearchParams()
-    if (params?.page) queryParams.append('page', params.page.toString())
-    if (params?.limit) queryParams.append('limit', params.limit.toString())
-    const query = queryParams.toString()
-    return apiClient.get<PaginatedResponse<any>>(`/posts/${postId}/participants${query ? `?${query}` : ''}`)
+    const queryParams: Record<string, string> = { postId: postId.toString() }
+    if (params?.page) queryParams.page = params.page.toString()
+    if (params?.limit) queryParams.limit = params.limit.toString()
+
+    const expressParams = new URLSearchParams({ ...queryParams })
+    return routeRequest<PaginatedResponse<any>>(
+      'post-participants',
+      `/posts/${postId}/participants?${expressParams.toString()}`,
+      { method: 'GET', queryParams }
+    )
   },
 }
 
@@ -915,14 +961,29 @@ export const settingsService = {
     isCurrentSession: boolean
     createdAt: string
   }>> {
-    return apiClient.get('/settings/login-activity')
+    return routeRequest<Array<{
+      id: string
+      device: string
+      location: string
+      timeAgo: string
+      isCurrentSession: boolean
+      createdAt: string
+    }>>(
+      'settings-login-activity',
+      '/settings/login-activity',
+      { method: 'GET' }
+    )
   },
 
   /**
    * Revoke a session
    */
   async revokeSession(tokenId: string): Promise<void> {
-    return apiClient.delete(`/settings/login-activity/${tokenId}`)
+    return routeRequest<void>(
+      'settings-revoke-session',
+      `/settings/login-activity/${tokenId}`,
+      { method: 'DELETE', data: { tokenId } }
+    )
   },
 
   /**
@@ -1365,7 +1426,11 @@ export const paymentService = {
     isAnonymous?: boolean
     message?: string
   }): Promise<CreateDonationResponse> {
-    return apiClient.post<CreateDonationResponse>('/payments/confirm-payment', data)
+    return routeRequest<CreateDonationResponse>(
+      'payment-confirm',
+      '/payments/confirm-payment',
+      { method: 'POST', data }
+    )
   },
 
   /**
@@ -1387,7 +1452,9 @@ export const paymentService = {
    * Create recurring donation (subscription)
    */
   async createRecurringDonation(data: {
-    eventId: string
+    eventId?: string
+    postId?: string
+    recipientUserId?: string
     amount: number
     currency?: string
     interval?: 'month' | 'week' | 'year'
@@ -1395,21 +1462,33 @@ export const paymentService = {
     isAnonymous?: boolean
     message?: string
   }): Promise<{ recurringDonation: RecurringDonation; donation: { id: string; amount: number; createdAt: string }; subscriptionId: string }> {
-    return apiClient.post('/payments/recurring', data)
+    return routeRequest<{ recurringDonation: RecurringDonation; donation: { id: string; amount: number; createdAt: string }; subscriptionId: string }>(
+      'payment-recurring-create',
+      '/payments/recurring',
+      { method: 'POST', data }
+    )
   },
 
   /**
    * Get user's recurring donations
    */
   async getRecurringDonations(): Promise<RecurringDonation[]> {
-    return apiClient.get<RecurringDonation[]>('/payments/recurring')
+    return routeRequest<RecurringDonation[]>(
+      'payment-recurring-list',
+      '/payments/recurring',
+      { method: 'GET' }
+    )
   },
 
   /**
    * Cancel recurring donation
    */
   async cancelRecurringDonation(recurringDonationId: string): Promise<void> {
-    return apiClient.delete(`/payments/recurring/${recurringDonationId}`)
+    return routeRequest<void>(
+      'payment-recurring-cancel',
+      `/payments/recurring/${recurringDonationId}`,
+      { method: 'DELETE', data: { recurringDonationId } }
+    )
   },
 
   /**

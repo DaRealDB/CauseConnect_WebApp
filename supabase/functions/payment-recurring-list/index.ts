@@ -1,14 +1,13 @@
 /**
- * Unbookmark Event Edge Function
- * DELETE /functions/v1/event-unbookmark
- * Body: { eventId: string }
+ * Get Recurring Donations Edge Function
+ * GET /functions/v1/payment-recurring-list
  */
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { handleCors, addCorsHeaders } from '../_shared/cors.ts'
 import { getUserFromRequest } from '../_shared/supabase.ts'
 import { handleError, AppError } from '../_shared/errors.ts'
-import { query, queryOne } from '../_shared/db.ts'
+import { query } from '../_shared/db.ts'
 
 serve(async (req: Request) => {
   const corsResponse = handleCors(req)
@@ -20,35 +19,21 @@ serve(async (req: Request) => {
       throw new AppError('Unauthorized', 401)
     }
 
-    if (req.method !== 'DELETE') {
+    if (req.method !== 'GET') {
       throw new AppError('Method not allowed', 405)
     }
 
-    const body = await req.json().catch(() => ({}))
-    const eventId = body.eventId || new URL(req.url).searchParams.get('eventId')
-
-    if (!eventId) {
-      throw new AppError('eventId is required', 400)
-    }
-
-    // Toggle bookmark (delete if exists)
-    const existing = await queryOne(
-      `SELECT id FROM bookmarks WHERE "eventId" = $1 AND "userId" = $2 AND "postId" IS NULL`,
-      [eventId, user.id]
+    const donations = await query(
+      `SELECT * FROM donations 
+       WHERE "userId" = $1 AND "isRecurring" = true 
+       ORDER BY "createdAt" DESC`,
+      [user.id]
     )
-
-    if (existing) {
-      await query(
-        `DELETE FROM bookmarks WHERE id = $1`,
-        [existing.id]
-      )
-    }
 
     return addCorsHeaders(
       new Response(
         JSON.stringify({
-          success: true,
-          message: 'Event unbookmarked',
+          donations,
         }),
         {
           headers: { 'Content-Type': 'application/json' },
@@ -59,3 +44,4 @@ serve(async (req: Request) => {
     return addCorsHeaders(handleError(error))
   }
 })
+

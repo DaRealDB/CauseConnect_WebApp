@@ -1,7 +1,7 @@
 /**
- * Unbookmark Event Edge Function
- * DELETE /functions/v1/event-unbookmark
- * Body: { eventId: string }
+ * Revoke Session Edge Function
+ * DELETE /functions/v1/settings-revoke-session
+ * Body: { tokenId: string }
  */
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
@@ -25,30 +25,33 @@ serve(async (req: Request) => {
     }
 
     const body = await req.json().catch(() => ({}))
-    const eventId = body.eventId || new URL(req.url).searchParams.get('eventId')
+    const tokenId = body.tokenId || new URL(req.url).searchParams.get('tokenId')
 
-    if (!eventId) {
-      throw new AppError('eventId is required', 400)
+    if (!tokenId) {
+      throw new AppError('tokenId is required', 400)
     }
 
-    // Toggle bookmark (delete if exists)
-    const existing = await queryOne(
-      `SELECT id FROM bookmarks WHERE "eventId" = $1 AND "userId" = $2 AND "postId" IS NULL`,
-      [eventId, user.id]
+    // Verify ownership
+    const token = await queryOne(
+      `SELECT * FROM tokens WHERE id = $1 AND "userId" = $2`,
+      [tokenId, user.id]
     )
 
-    if (existing) {
-      await query(
-        `DELETE FROM bookmarks WHERE id = $1`,
-        [existing.id]
-      )
+    if (!token) {
+      throw new AppError('Session not found', 404)
     }
+
+    // Delete token/session
+    await query(
+      `DELETE FROM tokens WHERE id = $1`,
+      [tokenId]
+    )
 
     return addCorsHeaders(
       new Response(
         JSON.stringify({
           success: true,
-          message: 'Event unbookmarked',
+          message: 'Session revoked',
         }),
         {
           headers: { 'Content-Type': 'application/json' },
@@ -59,3 +62,4 @@ serve(async (req: Request) => {
     return addCorsHeaders(handleError(error))
   }
 })
+

@@ -12,7 +12,7 @@ max_rows = 1000
 
 [db]
 port = 54322
-major_version = 15
+major_version = 17
 
 [studio]
 enabled = true
@@ -34,12 +34,10 @@ site_url = "http://localhost:3000"
 additional_redirect_urls = ["https://localhost:3000"]
 jwt_expiry = 3600
 enable_signup = true
-enable_confirmations = false
 
 [auth.email]
 enable_signup = true
 double_confirm_changes = true
-enable_confirmations = false
 
 [auth.external.google]
 enabled = false
@@ -48,6 +46,5 @@ secret = ""
 
 [edge_runtime]
 enabled = true
-port = 54327
 
 

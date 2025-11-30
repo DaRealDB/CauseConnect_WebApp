@@ -1,7 +1,7 @@
 /**
- * Unbookmark Event Edge Function
- * DELETE /functions/v1/event-unbookmark
- * Body: { eventId: string }
+ * Cancel Recurring Donation Edge Function
+ * DELETE /functions/v1/payment-recurring-cancel
+ * Body: { recurringDonationId: string }
  */
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
@@ -25,30 +25,34 @@ serve(async (req: Request) => {
     }
 
     const body = await req.json().catch(() => ({}))
-    const eventId = body.eventId || new URL(req.url).searchParams.get('eventId')
+    const recurringDonationId = body.recurringDonationId || new URL(req.url).searchParams.get('recurringDonationId')
 
-    if (!eventId) {
-      throw new AppError('eventId is required', 400)
+    if (!recurringDonationId) {
+      throw new AppError('recurringDonationId is required', 400)
     }
 
-    // Toggle bookmark (delete if exists)
-    const existing = await queryOne(
-      `SELECT id FROM bookmarks WHERE "eventId" = $1 AND "userId" = $2 AND "postId" IS NULL`,
-      [eventId, user.id]
+    // Verify ownership
+    const donation = await queryOne(
+      `SELECT * FROM donations WHERE id = $1 AND "userId" = $2 AND "isRecurring" = true`,
+      [recurringDonationId, user.id]
     )
 
-    if (existing) {
-      await query(
-        `DELETE FROM bookmarks WHERE id = $1`,
-        [existing.id]
-      )
+    if (!donation) {
+      throw new AppError('Recurring donation not found', 404)
     }
+
+    // TODO: Cancel Stripe subscription
+    // Update donation status
+    await query(
+      `UPDATE donations SET status = 'cancelled', "updatedAt" = NOW() WHERE id = $1`,
+      [recurringDonationId]
+    )
 
     return addCorsHeaders(
       new Response(
         JSON.stringify({
           success: true,
-          message: 'Event unbookmarked',
+          message: 'Recurring donation cancelled',
         }),
         {
           headers: { 'Content-Type': 'application/json' },
@@ -59,3 +63,4 @@ serve(async (req: Request) => {
     return addCorsHeaders(handleError(error))
   }
 })
+
