@@ -150,3 +150,4 @@ If you still get "Missing or insufficient permissions":
 **After following these steps exactly, your chat will work!**
 
 
+

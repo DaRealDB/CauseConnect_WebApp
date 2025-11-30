@@ -1,9 +1,76 @@
 /**
  * API Service Functions
  * Organized by feature module
+ * Routes to Supabase Edge Functions when available, falls back to Express backend
  */
 
 import { apiClient } from './client'
+import { supabaseEdgeFunctions } from './supabase-client'
+import { isUsingSupabase } from './supabase-routing'
+
+const IS_SUPABASE = isUsingSupabase()
+
+/**
+ * Route request to Supabase Edge Function or Express backend
+ */
+async function routeRequest<T>(
+  supabaseFunction: string | null,
+  expressEndpoint: string,
+  options: {
+    method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+    data?: any
+    queryParams?: Record<string, string>
+    useExpress?: boolean // Force Express backend
+    formData?: FormData // For file uploads
+  } = {}
+): Promise<T> {
+  // Try Supabase first if enabled and function exists
+  if (IS_SUPABASE && supabaseFunction && !options.useExpress) {
+    try {
+      if (options.formData) {
+        // Handle file uploads
+        return await supabaseEdgeFunctions.upload<T>(supabaseFunction, options.formData)
+      } else if (options.method === 'GET') {
+        return await supabaseEdgeFunctions.get<T>(supabaseFunction, options.queryParams)
+      } else if (options.method === 'POST') {
+        return await supabaseEdgeFunctions.post<T>(supabaseFunction, options.data)
+      } else if (options.method === 'PUT') {
+        return await supabaseEdgeFunctions.put<T>(supabaseFunction, options.data)
+      } else if (options.method === 'PATCH') {
+        return await supabaseEdgeFunctions.patch<T>(supabaseFunction, options.data)
+      } else if (options.method === 'DELETE') {
+        return await supabaseEdgeFunctions.delete<T>(supabaseFunction)
+      } else {
+        return await supabaseEdgeFunctions.get<T>(supabaseFunction, options.queryParams)
+      }
+    } catch (error: any) {
+      // If function not found (404), fall back to Express
+      if (error?.status === 404) {
+        console.warn(`[Services] Supabase function ${supabaseFunction} not found, falling back to Express`)
+      } else {
+        // Re-throw other errors
+        throw error
+      }
+    }
+  }
+
+  // Fall back to Express backend
+  if (options.formData) {
+    return await apiClient.upload<T>(expressEndpoint, options.formData)
+  } else if (options.method === 'GET') {
+    return await apiClient.get<T>(expressEndpoint)
+  } else if (options.method === 'POST') {
+    return await apiClient.post<T>(expressEndpoint, options.data)
+  } else if (options.method === 'PUT') {
+    return await apiClient.put<T>(expressEndpoint, options.data)
+  } else if (options.method === 'PATCH') {
+    return await apiClient.patch<T>(expressEndpoint, options.data)
+  } else if (options.method === 'DELETE') {
+    return await apiClient.delete<T>(expressEndpoint)
+  } else {
+    return await apiClient.get<T>(expressEndpoint)
+  }
+}
 import type {
   User,
   LoginRequest,
@@ -48,7 +115,11 @@ export const authService = {
    * Login user
    */
   async login(credentials: LoginRequest): Promise<LoginResponse> {
-    const response = await apiClient.post<LoginResponse>('/auth/login', credentials)
+    const response = await routeRequest<LoginResponse>(
+      'auth-login',
+      '/auth/login',
+      { method: 'POST', data: credentials }
+    )
     // Store token
     apiClient.setToken(response.token)
     return response
@@ -58,7 +129,11 @@ export const authService = {
    * Register new user
    */
   async register(data: RegisterRequest): Promise<RegisterResponse> {
-    const response = await apiClient.post<RegisterResponse>('/auth/register', data)
+    const response = await routeRequest<RegisterResponse>(
+      'auth-register',
+      '/auth/register',
+      { method: 'POST', data }
+    )
     // Store token
     apiClient.setToken(response.token)
     return response
@@ -75,14 +150,25 @@ export const authService = {
    * Get current user profile
    */
   async getCurrentUser(): Promise<User> {
-    return apiClient.get<User>('/auth/me')
+    const response = await routeRequest<{ user: User }>(
+      'auth-me',
+      '/auth/me',
+      { method: 'GET' }
+    )
+    // Handle both formats
+    return 'user' in response ? response.user : response as User
   },
 
   /**
    * Refresh token (if your backend supports it)
    */
   async refreshToken(): Promise<{ token: string }> {
-    const response = await apiClient.post<{ token: string }>('/auth/refresh')
+    const refreshToken = localStorage.getItem('refresh_token')
+    const response = await routeRequest<{ token: string }>(
+      'auth-refresh',
+      '/auth/refresh',
+      { method: 'POST', data: { refreshToken } }
+    )
     apiClient.setToken(response.token)
     return response
   },
@@ -135,7 +221,11 @@ export const userService = {
    * Get user profile by username
    */
   async getUserProfile(username: string): Promise<User> {
-    return apiClient.get<User>(`/users/${username}`)
+    return routeRequest<User>(
+      'user-profile',
+      `/users/${username}`,
+      { method: 'GET', queryParams: { username } }
+    )
   },
 
   /**
@@ -157,7 +247,11 @@ export const userService = {
    * Update user profile
    */
   async updateProfile(data: Partial<User>): Promise<User> {
-    return apiClient.put<User>('/users/profile', data)
+    return routeRequest<User>(
+      'user-update',
+      '/users/profile',
+      { method: 'PUT', data }
+    )
   },
 
   /**
@@ -182,7 +276,11 @@ export const userService = {
    * Toggle follow status (follows if not following, unfollows if following)
    */
   async toggleFollow(userId: string | number): Promise<{ isFollowing: boolean }> {
-    return apiClient.post<{ isFollowing: boolean }>(`/users/${userId}/follow`)
+    return routeRequest<{ isFollowing: boolean }>(
+      'user-follow',
+      `/users/${userId}/follow`,
+      { method: 'POST', data: { userId: userId.toString() } }
+    )
   },
 
   /**
@@ -196,10 +294,13 @@ export const userService = {
    * Search users
    */
   async searchUsers(query: string, limit?: number): Promise<User[]> {
-    const queryParams = new URLSearchParams()
-    queryParams.append('query', query)
-    if (limit) queryParams.append('limit', limit.toString())
-    return apiClient.get<User[]>(`/users/search?${queryParams.toString()}`)
+    const queryParams: Record<string, string> = { query }
+    if (limit) queryParams.limit = limit.toString()
+    return routeRequest<User[]>(
+      'user-search',
+      `/users/search?query=${query}${limit ? `&limit=${limit}` : ''}`,
+      { method: 'GET', queryParams }
+    )
   },
 
   /**
@@ -304,35 +405,46 @@ export const eventService = {
   }): Promise<PaginatedResponse<Event>> {
     // If filter is bookmarked, use the bookmarked endpoint
     if (params?.filter === 'bookmarked') {
-      const queryParams = new URLSearchParams()
-      if (params?.page) queryParams.append('page', params.page.toString())
-      if (params?.limit) queryParams.append('limit', params.limit.toString())
-      const query = queryParams.toString()
-      return apiClient.get<PaginatedResponse<Event>>(`/events/bookmarked${query ? `?${query}` : ''}`)
+      const queryParams: Record<string, string> = {}
+      if (params?.page) queryParams.page = params.page.toString()
+      if (params?.limit) queryParams.limit = params.limit.toString()
+      return routeRequest<PaginatedResponse<Event>>(
+        'event-bookmarked',
+        `/events/bookmarked`,
+        { method: 'GET', queryParams }
+      )
     }
 
-    const queryParams = new URLSearchParams()
-    if (params?.page) queryParams.append('page', params.page.toString())
-    if (params?.limit) queryParams.append('limit', params.limit.toString())
-    if (params?.filter) queryParams.append('filter', params.filter)
-    if (params?.search) queryParams.append('search', params.search)
-    if (params?.userId) queryParams.append('userId', params.userId)
-    if (params?.excludeUser) queryParams.append('excludeUser', 'true')
-    if (params?.requireUserTags) queryParams.append('requireUserTags', 'true')
-    if (params?.excludeUserTags) queryParams.append('excludeUserTags', 'true')
+    const queryParams: Record<string, string> = {}
+    if (params?.page) queryParams.page = params.page.toString()
+    if (params?.limit) queryParams.limit = params.limit.toString()
+    if (params?.filter) queryParams.filter = params.filter
+    if (params?.search) queryParams.search = params.search
+    if (params?.userId) queryParams.userId = params.userId
+    if (params?.excludeUser) queryParams.excludeUser = 'true'
+    if (params?.requireUserTags) queryParams.requireUserTags = 'true'
+    if (params?.excludeUserTags) queryParams.excludeUserTags = 'true'
     if (params?.tags && params.tags.length > 0) {
-      queryParams.append('tags', params.tags.join(','))
+      queryParams.tags = params.tags.join(',')
     }
 
-    const query = queryParams.toString()
-    return apiClient.get<PaginatedResponse<Event>>(`/events${query ? `?${query}` : ''}`)
+    const expressParams = new URLSearchParams(queryParams)
+    return routeRequest<PaginatedResponse<Event>>(
+      'event-list',
+      `/events?${expressParams.toString()}`,
+      { method: 'GET', queryParams }
+    )
   },
 
   /**
    * Get event by ID
    */
   async getEventById(id: string | number): Promise<Event> {
-    return apiClient.get<Event>(`/events/${id}`)
+    return routeRequest<Event>(
+      'event-detail',
+      `/events/${id}`,
+      { method: 'GET', queryParams: { id: id.toString() } }
+    )
   },
 
   /**
@@ -348,20 +460,37 @@ export const eventService = {
       if (data.targetDate) formData.append('targetDate', data.targetDate)
       if (data.goalAmount) formData.append('goalAmount', data.goalAmount.toString())
       data.tags.forEach((tag) => formData.append('tags', tag))
-      data.images.forEach((image) => formData.append('images', image))
+      data.images.forEach((image) => formData.append('image', image))
+
+      // Try Supabase first
+      if (IS_SUPABASE) {
+        try {
+          return await supabaseEdgeFunctions.upload<CreateEventResponse>('event-create', formData)
+        } catch (error: any) {
+          if (error?.status !== 404) throw error
+        }
+      }
 
       return apiClient.upload<CreateEventResponse>('/events', formData)
     }
 
     // Otherwise use JSON
-    return apiClient.post<CreateEventResponse>('/events', data)
+    return routeRequest<CreateEventResponse>(
+      'event-create',
+      '/events',
+      { method: 'POST', data }
+    )
   },
 
   /**
    * Support an event
    */
   async supportEvent(eventId: string | number): Promise<void> {
-    return apiClient.post(`/events/${eventId}/support`)
+    return routeRequest<void>(
+      'event-support',
+      `/events/${eventId}/support`,
+      { method: 'POST', data: { eventId: eventId.toString() } }
+    )
   },
 
   /**
@@ -375,7 +504,11 @@ export const eventService = {
    * Bookmark an event
    */
   async bookmarkEvent(eventId: string | number): Promise<void> {
-    return apiClient.post(`/events/${eventId}/bookmark`)
+    return routeRequest<void>(
+      'event-bookmark',
+      `/events/${eventId}/bookmark`,
+      { method: 'POST', data: { eventId: eventId.toString() } }
+    )
   },
 
   /**
@@ -435,18 +568,22 @@ export const postService = {
     requireUserTags?: boolean // Enforce filtering by user's selected tags (for feed)
     excludeUserTags?: boolean // For explore: exclude user's tags
   }): Promise<PaginatedResponse<Post>> {
-    const queryParams = new URLSearchParams()
-    if (params?.page) queryParams.append('page', params.page.toString())
-    if (params?.limit) queryParams.append('limit', params.limit.toString())
-    if (params?.userId) queryParams.append('userId', params.userId.toString())
-    if (params?.requireUserTags) queryParams.append('requireUserTags', 'true')
-    if (params?.excludeUserTags) queryParams.append('excludeUserTags', 'true')
+    const queryParams: Record<string, string> = {}
+    if (params?.page) queryParams.page = params.page.toString()
+    if (params?.limit) queryParams.limit = params.limit.toString()
+    if (params?.userId) queryParams.userId = params.userId.toString()
+    if (params?.requireUserTags) queryParams.requireUserTags = 'true'
+    if (params?.excludeUserTags) queryParams.excludeUserTags = 'true'
     if (params?.tags && params.tags.length > 0) {
-      queryParams.append('tags', params.tags.join(','))
+      queryParams.tags = params.tags.join(',')
     }
 
-    const query = queryParams.toString()
-    return apiClient.get<PaginatedResponse<Post>>(`/posts${query ? `?${query}` : ''}`)
+    const expressParams = new URLSearchParams(queryParams)
+    return routeRequest<PaginatedResponse<Post>>(
+      'post-list',
+      `/posts?${expressParams.toString()}`,
+      { method: 'GET', queryParams }
+    )
   },
 
   /**
@@ -474,7 +611,11 @@ export const postService = {
    * Like a post
    */
   async likePost(postId: number | string): Promise<void> {
-    return apiClient.post(`/posts/${postId}/like`)
+    return routeRequest<void>(
+      'post-like',
+      `/posts/${postId}/like`,
+      { method: 'POST', data: { postId: postId.toString() } }
+    )
   },
 
   /**
@@ -488,7 +629,11 @@ export const postService = {
    * Bookmark a post
    */
   async bookmarkPost(postId: number | string): Promise<void> {
-    return apiClient.post(`/posts/${postId}/bookmark`)
+    return routeRequest<void>(
+      'post-bookmark',
+      `/posts/${postId}/bookmark`,
+      { method: 'POST', data: { postId: postId.toString() } }
+    )
   },
 
   /**
@@ -541,21 +686,33 @@ export const commentService = {
    * Get comments for an event/post
    */
   async getComments(eventId: string | number): Promise<Comment[]> {
-    return apiClient.get<Comment[]>(`/comments/events/${eventId}/comments`)
+    return routeRequest<Comment[]>(
+      'comment-list',
+      `/comments/events/${eventId}/comments`,
+      { method: 'GET', queryParams: { eventId: eventId.toString() } }
+    )
   },
 
   /**
    * Create a comment
    */
   async createComment(eventId: string | number, data: CreateCommentRequest): Promise<CreateCommentResponse> {
-    return apiClient.post<CreateCommentResponse>(`/comments/events/${eventId}/comments`, data)
+    return routeRequest<CreateCommentResponse>(
+      'comment-create',
+      `/comments/events/${eventId}/comments`,
+      { method: 'POST', data: { ...data, eventId: eventId.toString() } }
+    )
   },
 
   /**
    * Like a comment
    */
   async likeComment(commentId: string | number): Promise<void> {
-    return apiClient.post(`/comments/${commentId}/like`)
+    return routeRequest<void>(
+      'comment-like',
+      `/comments/${commentId}/like`,
+      { method: 'POST', data: { commentId: commentId.toString() } }
+    )
   },
 
   /**
@@ -601,7 +758,11 @@ export const donationService = {
    * Create a donation
    */
   async createDonation(data: CreateDonationRequest): Promise<CreateDonationResponse> {
-    return apiClient.post<CreateDonationResponse>('/donations', data)
+    return routeRequest<CreateDonationResponse>(
+      'donation-create',
+      '/donations',
+      { method: 'POST', data }
+    )
   },
 
   /**
@@ -612,13 +773,17 @@ export const donationService = {
     limit?: number
     eventId?: number
   }): Promise<PaginatedResponse<Donation>> {
-    const queryParams = new URLSearchParams()
-    if (params?.page) queryParams.append('page', params.page.toString())
-    if (params?.limit) queryParams.append('limit', params.limit.toString())
-    if (params?.eventId) queryParams.append('eventId', params.eventId.toString())
+    const queryParams: Record<string, string> = {}
+    if (params?.page) queryParams.page = params.page.toString()
+    if (params?.limit) queryParams.limit = params.limit.toString()
+    if (params?.eventId) queryParams.eventId = params.eventId.toString()
 
-    const query = queryParams.toString()
-    return apiClient.get<PaginatedResponse<Donation>>(`/donations${query ? `?${query}` : ''}`)
+    const expressParams = new URLSearchParams(queryParams)
+    return routeRequest<PaginatedResponse<Donation>>(
+      'donation-list',
+      `/donations?${expressParams.toString()}`,
+      { method: 'GET', queryParams }
+    )
   },
 }
 
@@ -633,27 +798,39 @@ export const notificationService = {
     limit?: number
     type?: string
   }): Promise<PaginatedResponse<Notification>> {
-    const queryParams = new URLSearchParams()
-    if (params?.page) queryParams.append('page', params.page.toString())
-    if (params?.limit) queryParams.append('limit', params.limit.toString())
-    if (params?.type) queryParams.append('type', params.type)
+    const queryParams: Record<string, string> = {}
+    if (params?.page) queryParams.page = params.page.toString()
+    if (params?.limit) queryParams.limit = params.limit.toString()
+    if (params?.type) queryParams.type = params.type
 
-    const query = queryParams.toString()
-    return apiClient.get<PaginatedResponse<Notification>>(`/notifications${query ? `?${query}` : ''}`)
+    const expressParams = new URLSearchParams(queryParams)
+    return routeRequest<PaginatedResponse<Notification>>(
+      'notification-list',
+      `/notifications?${expressParams.toString()}`,
+      { method: 'GET', queryParams }
+    )
   },
 
   /**
    * Mark notification as read
    */
   async markAsRead(notificationId: string): Promise<void> {
-    return apiClient.patch(`/notifications/${notificationId}/read`)
+    return routeRequest<void>(
+      'notification-read',
+      `/notifications/${notificationId}/read`,
+      { method: 'PATCH', queryParams: { id: notificationId } }
+    )
   },
 
   /**
    * Mark all notifications as read
    */
   async markAllAsRead(): Promise<void> {
-    return apiClient.patch('/notifications/read-all')
+    return routeRequest<void>(
+      'notification-read-all',
+      '/notifications/read-all',
+      { method: 'PATCH' }
+    )
   },
 
   /**
@@ -667,7 +844,11 @@ export const notificationService = {
    * Get unread count
    */
   async getUnreadCount(): Promise<{ count: number }> {
-    return apiClient.get<{ count: number }>('/notifications/unread-count')
+    return routeRequest<{ count: number }>(
+      'notification-unread-count',
+      '/notifications/unread-count',
+      { method: 'GET' }
+    )
   },
 }
 
@@ -705,14 +886,22 @@ export const settingsService = {
    * Get user settings
    */
   async getSettings(): Promise<UserSettings> {
-    return apiClient.get<UserSettings>('/settings')
+    return routeRequest<UserSettings>(
+      'settings-get',
+      '/settings',
+      { method: 'GET' }
+    )
   },
 
   /**
    * Update user settings
    */
   async updateSettings(data: Partial<UserSettings>): Promise<UserSettings> {
-    return apiClient.put<UserSettings>('/settings', data)
+    return routeRequest<UserSettings>(
+      'settings-update',
+      '/settings',
+      { method: 'PUT', data }
+    )
   },
 
   /**
@@ -798,7 +987,11 @@ export const squadService = {
    * Get user's squads
    */
   async getSquads(): Promise<Squad[]> {
-    return apiClient.get<Squad[]>('/squads')
+    return routeRequest<Squad[]>(
+      'squad-list',
+      '/squads',
+      { method: 'GET' }
+    )
   },
 
   /**
@@ -815,7 +1008,11 @@ export const squadService = {
    * Get squad by ID
    */
   async getSquadById(squadId: string | number): Promise<Squad> {
-    return apiClient.get<Squad>(`/squads/${squadId}`)
+    return routeRequest<Squad>(
+      'squad-detail',
+      `/squads/${squadId}`,
+      { method: 'GET', queryParams: { id: squadId.toString() } }
+    )
   },
 
   /**
@@ -837,14 +1034,22 @@ export const squadService = {
    * Join a squad
    */
   async joinSquad(squadId: string | number): Promise<void> {
-    return apiClient.post(`/squads/${squadId}/join`)
+    return routeRequest<void>(
+      'squad-join',
+      `/squads/${squadId}/join`,
+      { method: 'POST', queryParams: { id: squadId.toString() } }
+    )
   },
 
   /**
    * Leave a squad
    */
   async leaveSquad(squadId: string | number): Promise<void> {
-    return apiClient.delete(`/squads/${squadId}/join`)
+    return routeRequest<void>(
+      'squad-leave',
+      `/squads/${squadId}/join`,
+      { method: 'DELETE', queryParams: { id: squadId.toString() } }
+    )
   },
 
   /**
@@ -901,11 +1106,16 @@ export const squadService = {
    * Get squad posts
    */
   async getSquadPosts(squadId: string | number, page?: number, limit?: number): Promise<PaginatedResponse<SquadPost>> {
-    const queryParams = new URLSearchParams()
-    if (page) queryParams.append('page', page.toString())
-    if (limit) queryParams.append('limit', limit.toString())
-    const query = queryParams.toString()
-    return apiClient.get<PaginatedResponse<SquadPost>>(`/squads/${squadId}/posts${query ? `?${query}` : ''}`)
+    const queryParams: Record<string, string> = { id: squadId.toString() }
+    if (page) queryParams.page = page.toString()
+    if (limit) queryParams.limit = limit.toString()
+
+    const expressParams = new URLSearchParams({ page: page?.toString() || '1', limit: limit?.toString() || '10' })
+    return routeRequest<PaginatedResponse<SquadPost>>(
+      'squad-posts',
+      `/squads/${squadId}/posts?${expressParams.toString()}`,
+      { method: 'GET', queryParams }
+    )
   },
 
   /**
@@ -914,11 +1124,27 @@ export const squadService = {
   async createSquadPost(squadId: string | number, data: { content: string; image?: File }): Promise<SquadPost> {
     if (data.image) {
       const formData = new FormData()
+      formData.append('squadId', squadId.toString())
       formData.append('content', data.content)
       formData.append('image', data.image)
+
+      // Try Supabase first
+      if (IS_SUPABASE) {
+        try {
+          return await supabaseEdgeFunctions.upload<SquadPost>('squad-post-create', formData)
+        } catch (error: any) {
+          if (error?.status !== 404) throw error
+        }
+      }
+
       return apiClient.upload<SquadPost>(`/squads/${squadId}/posts`, formData)
     }
-    return apiClient.post<SquadPost>(`/squads/${squadId}/posts`, { content: data.content })
+
+    return routeRequest<SquadPost>(
+      'squad-post-create',
+      `/squads/${squadId}/posts`,
+      { method: 'POST', data: { squadId: squadId.toString(), content: data.content } }
+    )
   },
 
   /**

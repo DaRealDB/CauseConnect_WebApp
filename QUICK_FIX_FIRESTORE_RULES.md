@@ -59,3 +59,4 @@ service cloud.firestore {
 **⚠️ Note:** These are development rules. For production, consider implementing Firebase Admin SDK token verification or keeping backend-only authentication.
 
 
+

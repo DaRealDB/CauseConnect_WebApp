@@ -53,3 +53,4 @@ The file upload button will automatically appear in the chat interface once Stor
 You only need to update Firestore rules to get chat working!
 
 
+

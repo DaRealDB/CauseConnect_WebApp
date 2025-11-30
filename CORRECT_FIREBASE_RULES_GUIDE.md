@@ -158,3 +158,4 @@ If Firebase Console shows syntax errors:
 **After updating both rules correctly and clearing cache, chat will work!**
 
 
+

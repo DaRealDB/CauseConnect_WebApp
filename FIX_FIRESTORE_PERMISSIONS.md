@@ -53,3 +53,4 @@ You can also manually copy the rules from `FIRESTORE_SECURITY_RULES_DEVELOPMENT.
 **After updating the rules, refresh your browser and try clicking a user again!**
 
 
+

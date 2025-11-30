@@ -257,3 +257,4 @@ The chat page is located at `/app/chat/page.tsx` and includes:
 - All chat data persists in Firestore and survives logout/login
 
 
+

@@ -1,9 +1,12 @@
 /**
  * API Client for CauseConnect
  * Handles all HTTP requests with JWT token management
+ * Supports both Express backend and Supabase Edge Functions
  */
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api'
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+const IS_SUPABASE = SUPABASE_URL && API_BASE_URL.includes('supabase.co/functions/v1')
 
 export interface ApiError {
   message: string
@@ -19,10 +22,26 @@ class ApiClient {
   }
 
   /**
-   * Get JWT token from localStorage
+   * Get authentication token from localStorage
+   * Supports both JWT (Express) and Supabase Auth tokens
    */
   private getToken(): string | null {
     if (typeof window === 'undefined') return null
+    
+    if (IS_SUPABASE) {
+      // Try Supabase Auth token first
+      const supabaseSession = localStorage.getItem('supabase.auth.token')
+      if (supabaseSession) {
+        try {
+          const session = JSON.parse(supabaseSession)
+          return session?.access_token || null
+        } catch {
+          // Fall through to JWT token
+        }
+      }
+    }
+    
+    // Fallback to JWT token (for Express backend or migration period)
     return localStorage.getItem('auth_token')
   }
 
@@ -112,6 +131,11 @@ class ApiClient {
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
       ...options.headers,
+    }
+
+    // Add Supabase-specific headers
+    if (IS_SUPABASE && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+      headers['apikey'] = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
     }
 
     // Add Authorization header if token exists
@@ -244,6 +268,12 @@ class ApiClient {
     const token = this.getToken()
 
     const headers: HeadersInit = {}
+    
+    // Add Supabase-specific headers
+    if (IS_SUPABASE && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+      headers['apikey'] = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    }
+    
     if (token) {
       headers['Authorization'] = `Bearer ${token}`
     }

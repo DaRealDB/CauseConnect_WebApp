@@ -1,0 +1,21 @@
+# Supabase CLI
+.branches
+.temp
+supabase/.branches
+supabase/.temp
+
+# Environment variables
+.env
+.env.local
+
+# Logs
+*.log
+
+# Database backups
+*.sql
+*.dump
+
+# Local development
+.branch
+
+

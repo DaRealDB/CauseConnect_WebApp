@@ -109,3 +109,4 @@ Your backend JWT authentication still protects your data - these rules just let 
 **After updating both sets of rules and refreshing, your chat will work completely!**
 
 
+
