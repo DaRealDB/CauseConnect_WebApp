@@ -610,7 +610,7 @@ export const postService = {
     return routeRequest<PaginatedResponse<Post>>(
       'post-list',
       `/posts?${expressParams.toString()}`,
-      { method: 'GET', queryParams }
+      { method: 'GET', queryParams, useExpress: true }
     )
   },
 
@@ -699,6 +699,36 @@ export const postService = {
   },
 
   /**
+   * Get muted posts for the current user
+   */
+  async getMutedPosts(params?: {
+    page?: number
+    limit?: number
+  }): Promise<PaginatedResponse<Post>> {
+    const queryParams: Record<string, string> = {}
+    if (params?.page) queryParams.page = params.page.toString()
+    if (params?.limit) queryParams.limit = params.limit.toString()
+
+    const expressParams = new URLSearchParams(queryParams)
+    return routeRequest<PaginatedResponse<Post>>(
+      null,
+      `/posts/muted?${expressParams.toString()}`,
+      { method: 'GET', queryParams, useExpress: true }
+    )
+  },
+
+  /**
+   * Delete a post (owner only)
+   */
+  async deletePost(postId: number | string): Promise<void> {
+    return routeRequest<void>(
+      null,
+      `/posts/${postId}`,
+      { method: 'DELETE', data: { postId: postId.toString() }, useExpress: true }
+    )
+  },
+
+  /**
    * Participate in a post
    */
   async participateInPost(postId: number | string): Promise<{ isParticipating: boolean }> {
@@ -721,6 +751,28 @@ export const postService = {
       'post-participants',
       `/posts/${postId}/participants?${expressParams.toString()}`,
       { method: 'GET', queryParams }
+    )
+  },
+  
+  /**
+   * Mute a post for the current user
+   */
+  async mutePost(postId: number | string): Promise<void> {
+    return routeRequest<void>(
+      null,
+      `/posts/${postId}/mute`,
+      { method: 'POST', data: { postId: postId.toString() }, useExpress: true }
+    )
+  },
+
+  /**
+   * Unmute a post for the current user
+   */
+  async unmutePost(postId: number | string): Promise<void> {
+    return routeRequest<void>(
+      null,
+      `/posts/${postId}/mute`,
+      { method: 'DELETE', data: { postId: postId.toString() }, useExpress: true }
     )
   },
 }
@@ -747,6 +799,28 @@ export const commentService = {
       'comment-create',
       `/comments/events/${eventId}/comments`,
       { method: 'POST', data: { ...data, eventId: eventId.toString() } }
+    )
+  },
+
+  /**
+   * Get comments for a community post
+   */
+  async getPostComments(postId: string | number): Promise<Comment[]> {
+    return routeRequest<Comment[]>(
+      null,
+      `/comments/posts/${postId}/comments`,
+      { method: 'GET', queryParams: { postId: postId.toString() }, useExpress: true }
+    )
+  },
+
+  /**
+   * Create a comment on a community post
+   */
+  async createPostComment(postId: string | number, data: CreateCommentRequest): Promise<CreateCommentResponse> {
+    return routeRequest<CreateCommentResponse>(
+      null,
+      `/comments/posts/${postId}/comments`,
+      { method: 'POST', data: { ...data, postId: postId.toString() }, useExpress: true }
     )
   },
 

@@ -14,13 +14,18 @@ import {
   CheckCircle,
   UserPlus,
   UserCheck,
-  Users,
 } from "lucide-react"
-import { postService } from "@/lib/api/services"
-import { userService } from "@/lib/api/services"
+import { postService, userService, settingsService } from "@/lib/api/services"
 import { toast } from "sonner"
 import { useAuth } from "@/contexts/AuthContext"
 import { getImageUrl, formatTimestamp } from "@/lib/utils"
+import { CommentSystem } from "@/components/comment-system"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 interface UserPostProps {
   post: {
@@ -42,7 +47,6 @@ interface UserPostProps {
     shares: number
     liked: boolean
     bookmarked: boolean
-    isParticipating?: boolean
   }
 }
 
@@ -51,12 +55,13 @@ export function UserPost({ post }: UserPostProps) {
   const [isLiked, setIsLiked] = useState(post.liked)
   const [isBookmarked, setIsBookmarked] = useState(post.bookmarked)
   const [isFollowing, setIsFollowing] = useState(post.user.following || false)
-  const [isParticipating, setIsParticipating] = useState(post.isParticipating || false)
   const [likesCount, setLikesCount] = useState(post.likes)
-  const [participantsCount, setParticipantsCount] = useState(post.participants || 0)
+  const [commentsCount, setCommentsCount] = useState(post.comments)
   const [isBookmarking, setIsBookmarking] = useState(false)
   const [isFollowingLoading, setIsFollowingLoading] = useState(false)
-  const [isParticipatingLoading, setIsParticipatingLoading] = useState(false)
+  const [showComments, setShowComments] = useState(false)
+  const [isMuted, setIsMuted] = useState(false)
+  const [isFading, setIsFading] = useState(false)
 
   const isOwnPost = currentUser?.id === post.user.id
 
@@ -65,11 +70,9 @@ export function UserPost({ post }: UserPostProps) {
     setIsBookmarked(post.bookmarked)
   }, [post.bookmarked])
 
-  // Sync participation state from props
   useEffect(() => {
-    setIsParticipating(post.isParticipating || false)
-    setParticipantsCount(post.participants || 0)
-  }, [post.isParticipating, post.participants])
+    setCommentsCount(post.comments)
+  }, [post.comments])
 
   const handleLike = async () => {
     const previousState = isLiked
@@ -133,30 +136,63 @@ export function UserPost({ post }: UserPostProps) {
     }
   }
 
-  const handleParticipate = async () => {
-    if (isParticipatingLoading || isOwnPost) return
-
-    const previousState = isParticipating
-    setIsParticipating(!isParticipating)
-    setParticipantsCount((prev) => (previousState ? prev - 1 : prev + 1))
-    setIsParticipatingLoading(true)
+  const handleDeletePost = async () => {
+    if (!isOwnPost) return
 
     try {
-      const result = await postService.participateInPost(post.id)
-      setIsParticipating(result.isParticipating)
-      toast.success(result.isParticipating ? "Joined!" : "Left")
+      await postService.deletePost(post.id)
+      toast.success("Post deleted")
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("post_deleted", { detail: { postId: post.id } }))
+      }
     } catch (error: any) {
-      // Revert on error
-      setIsParticipating(previousState)
-      setParticipantsCount((prev) => (previousState ? prev + 1 : prev - 1))
-      toast.error(error.message || "Failed to update participation")
-    } finally {
-      setIsParticipatingLoading(false)
+      toast.error(error.message || "Failed to delete post")
     }
   }
 
+  const handleBlockAuthor = async () => {
+    if (!post.user.id) return
+
+    try {
+      await settingsService.blockUser(post.user.id.toString())
+      toast.success("User blocked. You may need to refresh the feed.")
+    } catch (error: any) {
+      toast.error(error.message || "Failed to block user")
+    }
+  }
+
+  const handleMutePost = async () => {
+    if (isMuted || isFading) return
+
+    setIsFading(true)
+
+    try {
+      await postService.mutePost(post.id)
+      toast.success("Post muted")
+
+      // After fade-out animation, remove the post from the feed locally
+      setTimeout(() => {
+        setIsMuted(true)
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("post_muted", { detail: { postId: post.id } }))
+        }
+      }, 300)
+    } catch (error: any) {
+      setIsFading(false)
+      toast.error(error.message || "Failed to mute post")
+    }
+  }
+
+  if (isMuted) {
+    return null
+  }
+
   return (
-    <Card className="border-0 shadow-lg bg-card/80 backdrop-blur-sm overflow-hidden hover:shadow-xl transition-all duration-300">
+    <Card
+      className={`border-0 shadow-lg bg-card/80 backdrop-blur-sm overflow-hidden hover:shadow-xl transition-all duration-300 ${
+        isFading ? "opacity-0 translate-y-2 scale-[0.98]" : "opacity-100"
+      }`}
+    >
       <CardContent className="p-6">
         {/* User Header */}
         <div className="flex items-center justify-between mb-4">
@@ -224,8 +260,7 @@ export function UserPost({ post }: UserPostProps) {
         {/* Engagement Stats */}
         <div className="flex items-center gap-4 text-sm text-muted-foreground mb-4">
           <span>{likesCount} likes</span>
-          <span>{post.comments} comments</span>
-          {participantsCount > 0 && <span>{participantsCount} participants</span>}
+          <span>{commentsCount} comments</span>
           <span>{post.shares} shares</span>
         </div>
 
@@ -241,22 +276,15 @@ export function UserPost({ post }: UserPostProps) {
               <Heart className={`w-4 h-4 ${isLiked ? "fill-current" : ""}`} />
               {isLiked ? "Liked" : "Like"}
             </Button>
-            <Button size="sm" variant="ghost" className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              className="flex items-center gap-2"
+              onClick={() => setShowComments((prev) => !prev)}
+            >
               <MessageCircle className="w-4 h-4" />
               Comment
             </Button>
-            {!isOwnPost && (
-              <Button
-                size="sm"
-                variant={isParticipating ? "default" : "ghost"}
-                className={`flex items-center gap-2 ${isParticipating ? "" : ""}`}
-                onClick={handleParticipate}
-                disabled={isParticipatingLoading}
-              >
-                <Users className={`w-4 h-4 ${isParticipating ? "fill-current" : ""}`} />
-                {isParticipating ? "Participating" : "Participate"}
-              </Button>
-            )}
             <Button size="sm" variant="ghost" className="flex items-center gap-2">
               <Share2 className="w-4 h-4" />
               Share
@@ -276,11 +304,39 @@ export function UserPost({ post }: UserPostProps) {
             <Button size="sm" variant="ghost">
               <Award className="w-4 h-4" />
             </Button>
-            <Button size="sm" variant="ghost">
-              <MoreHorizontal className="w-4 h-4" />
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="ghost">
+                  <MoreHorizontal className="w-4 h-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {isOwnPost ? (
+                  <>
+                    <DropdownMenuItem onClick={handleDeletePost}>Delete Post</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => toast.info("Edit Post coming soon")}>Edit Post</DropdownMenuItem>
+                  </>
+                ) : (
+                  <>
+                    <DropdownMenuItem onClick={handleBlockAuthor}>Block Post</DropdownMenuItem>
+                    <DropdownMenuItem onClick={handleMutePost}>Mute Post</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => toast.info("Post reported. Thank you.")}>Report Post</DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
+
+        {showComments && (
+          <div className="mt-4">
+            <CommentSystem
+              postId={post.id}
+              type="post"
+              onCountChange={(count) => setCommentsCount(count)}
+            />
+          </div>
+        )}
       </CardContent>
     </Card>
   )

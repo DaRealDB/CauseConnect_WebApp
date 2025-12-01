@@ -3,12 +3,19 @@ import { createError } from '../middleware/errorHandler'
 import { createNotification } from '../utils/notifications'
 
 export const commentService = {
-  async getComments(eventId: string, userId?: string) {
+  async getComments(targetId: string, userId?: string, type: 'event' | 'post' = 'event') {
+    const where: any = {
+      parentId: null, // Only top-level comments
+    }
+
+    if (type === 'event') {
+      where.eventId = targetId
+    } else {
+      where.postId = targetId
+    }
+
     const comments = await prisma.comment.findMany({
-      where: {
-        eventId,
-        parentId: null, // Only top-level comments
-      },
+      where,
       include: {
         user: {
           select: {
@@ -122,13 +129,14 @@ export const commentService = {
     return transformedComments
   },
 
-  async createComment(eventId: string, userId: string, data: any) {
+  async createComment(targetId: string, userId: string, data: any, type: 'event' | 'post' = 'event') {
     const { content, parentId } = data
 
     const comment = await prisma.comment.create({
       data: {
         content,
-        eventId,
+        eventId: type === 'event' ? targetId : null,
+        postId: type === 'post' ? targetId : null,
         userId,
         parentId: parentId || null,
       },
@@ -156,27 +164,46 @@ export const commentService = {
       },
     })
 
-    // Create notification for event organizer
-    const event = await prisma.event.findUnique({
-      where: { id: eventId },
-      include: {
-        organization: {
-          select: {
-            id: true,
+    if (type === 'event') {
+      // Create notification for event organizer
+      const event = await prisma.event.findUnique({
+        where: { id: targetId },
+        include: {
+          organization: {
+            select: {
+              id: true,
+            },
           },
         },
-      },
-    })
-
-    if (event && event.organizationId !== userId && commenter) {
-      const commenterName = `${commenter.firstName} ${commenter.lastName}`.trim() || commenter.username
-      await createNotification({
-        userId: event.organizationId,
-        type: 'comment',
-        title: 'New Comment on Your Event',
-        message: `${commenterName} commented on your event "${event.title}"`,
-        actionUrl: `/event/${eventId}`,
       })
+
+      if (event && event.organizationId !== userId && commenter) {
+        const commenterName = `${commenter.firstName} ${commenter.lastName}`.trim() || commenter.username
+        await createNotification({
+          userId: event.organizationId,
+          type: 'comment',
+          title: 'New Comment on Your Event',
+          message: `${commenterName} commented on your event "${event.title}"`,
+          actionUrl: `/event/${targetId}`,
+        })
+      }
+    } else {
+      // Create notification for post author
+      const post = await prisma.post.findUnique({
+        where: { id: targetId },
+        select: { userId: true, content: true },
+      })
+
+      if (post && post.userId !== userId && commenter) {
+        const commenterName = `${commenter.firstName} ${commenter.lastName}`.trim() || commenter.username
+        await createNotification({
+          userId: post.userId,
+          type: 'post_comment',
+          title: 'New Comment on Your Post',
+          message: `${commenterName} commented on your post`,
+          actionUrl: `/feed`,
+        })
+      }
     }
 
     // If this is a reply to another comment, notify the parent comment author
@@ -193,7 +220,7 @@ export const commentService = {
           type: 'comment_reply',
           title: 'Reply to Your Comment',
           message: `${commenterName} replied to your comment`,
-          actionUrl: `/event/${eventId}`,
+          actionUrl: type === 'event' ? `/event/${targetId}` : `/feed`,
         })
       }
     }

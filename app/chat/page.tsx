@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useAuth } from "@/contexts/AuthContext"
 import { ChatSidebar } from "@/components/chat/ChatSidebar"
@@ -26,6 +26,9 @@ export default function ChatPage() {
   const [isFirebaseConfigured, setIsFirebaseConfigured] = useState<boolean | null>(null)
   const { conversations, startConversation, error: chatError } = useChat()
   const [hasPermissionError, setHasPermissionError] = useState(false)
+  const hasHandledUserParamRef = useRef(false)
+
+  const userParam = searchParams?.get("user") || ""
   
   // Check for permission errors
   useEffect(() => {
@@ -62,13 +65,18 @@ export default function ChatPage() {
 
   // Handle user query param (from profile page message button)
   useEffect(() => {
-    const usernameParam = searchParams?.get("user")
-    if (!usernameParam || !isAuthenticated || authLoading || !user?.id) return
+    if (!userParam || !isAuthenticated || authLoading || !user?.id) return
+
+    if (hasHandledUserParamRef.current) {
+      return
+    }
+
+    hasHandledUserParamRef.current = true
 
     const handleUserParam = async () => {
       try {
         // Fetch user profile to get user ID
-        const targetUser = await userService.getUserProfile(usernameParam)
+        const targetUser = await userService.getUserProfile(userParam)
         if (targetUser.id.toString() === user.id.toString()) {
           toast.error("You cannot message yourself")
           router.replace("/chat")
@@ -102,7 +110,7 @@ export default function ChatPage() {
 
     handleUserParam()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams?.get("user"), isAuthenticated, authLoading, user?.id])
+  }, [userParam, isAuthenticated, authLoading, user?.id])
 
   // Auto-select first conversation if available and none selected
   useEffect(() => {

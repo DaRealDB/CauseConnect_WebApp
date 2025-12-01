@@ -28,9 +28,11 @@ import { formatTimestamp, getImageUrl } from "@/lib/utils"
 interface CommentSystemProps {
   postId: string | number
   initialComments?: Comment[]
+  type?: 'event' | 'post'
+  onCountChange?: (count: number) => void
 }
 
-export function CommentSystem({ postId, initialComments }: CommentSystemProps) {
+export function CommentSystem({ postId, initialComments, type = 'event', onCountChange }: CommentSystemProps) {
   const { user } = useAuth()
   const [comments, setComments] = useState<Comment[]>(initialComments || [])
   const [isLoading, setIsLoading] = useState(!initialComments)
@@ -43,13 +45,19 @@ export function CommentSystem({ postId, initialComments }: CommentSystemProps) {
     if (!initialComments) {
       loadComments()
     }
-  }, [postId])
+  }, [postId, type])
 
   const loadComments = async () => {
     try {
       setIsLoading(true)
-      const loadedComments = await commentService.getComments(postId)
+      const loadedComments =
+        type === 'event'
+          ? await commentService.getComments(postId)
+          : await commentService.getPostComments(postId)
       setComments(loadedComments)
+      if (onCountChange) {
+        onCountChange(loadedComments.length)
+      }
     } catch (error: any) {
       toast.error(error.message || "Failed to load comments")
     } finally {
@@ -61,8 +69,15 @@ export function CommentSystem({ postId, initialComments }: CommentSystemProps) {
     if (!newComment.trim()) return
 
     try {
-      const response = await commentService.createComment(postId, { content: newComment })
-      setComments([response.comment, ...comments])
+      const response =
+        type === 'event'
+          ? await commentService.createComment(postId, { content: newComment })
+          : await commentService.createPostComment(postId, { content: newComment })
+      const updated = [response.comment, ...comments]
+      setComments(updated)
+      if (onCountChange) {
+        onCountChange(updated.length)
+      }
       setNewComment("")
       toast.success("Comment posted!")
     } catch (error: any) {
@@ -74,17 +89,22 @@ export function CommentSystem({ postId, initialComments }: CommentSystemProps) {
     if (!replyText.trim()) return
 
     try {
-      const response = await commentService.createComment(postId, {
-        content: replyText,
-        parentId,
-      })
-      setComments(
-        comments.map((comment) =>
-          comment.id === parentId
-            ? { ...comment, replies: [...comment.replies, response.comment] }
-            : comment,
-        ),
+      const response =
+        type === 'event'
+          ? await commentService.createComment(postId, {
+              content: replyText,
+              parentId,
+            })
+          : await commentService.createPostComment(postId, {
+              content: replyText,
+              parentId,
+            })
+      const updated = comments.map((comment) =>
+        comment.id === parentId
+          ? { ...comment, replies: [...comment.replies, response.comment] }
+          : comment,
       )
+      setComments(updated)
       setReplyText("")
       setReplyingTo(null)
       toast.success("Reply posted!")

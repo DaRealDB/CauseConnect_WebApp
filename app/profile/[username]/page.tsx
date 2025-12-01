@@ -31,6 +31,7 @@ import type { User } from "@/lib/api/types"
 import { toast } from "sonner"
 import { useAuth } from "@/contexts/AuthContext"
 import { getImageUrl } from "@/lib/utils"
+import { CoverPhotoUploader } from "@/components/profile/CoverPhotoUploader"
 
 export default function UserProfilePage() {
   const params = useParams()
@@ -211,7 +212,6 @@ export default function UserProfilePage() {
         <div className="max-w-4xl mx-auto">
           {/* Profile Header */}
           <Card className="border-0 shadow-xl bg-card/80 backdrop-blur-sm overflow-hidden mb-6">
-            {/* Cover Image */}
             <div className="relative h-48 bg-gradient-to-r from-primary/20 to-accent/20">
               <img
                 src={getImageUrl(profileUser.coverImage)}
@@ -230,6 +230,15 @@ export default function UserProfilePage() {
                   </Button>
                 )}
               </div>
+              {isOwnProfile && (
+                <div className="absolute bottom-4 right-4">
+                  <CoverPhotoUploader
+                    onUpdated={(url) =>
+                      setProfileUser((prev) => (prev ? { ...prev, coverImage: url } : prev))
+                    }
+                  />
+                </div>
+              )}
             </div>
 
             <CardContent className="p-8">

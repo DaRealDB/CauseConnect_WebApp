@@ -250,6 +250,31 @@ export default function FeedPage() {
     }
   }
 
+  // Keep feed in sync with mute/unmute actions from other parts of the app
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const handlePostMuted = (event: any) => {
+      const customEvent = event as CustomEvent<{ postId: number | string }>
+      const postId = customEvent.detail?.postId
+      if (!postId) return
+      setPosts((prev) => prev.filter((post) => post.id !== postId))
+    }
+
+    const handlePostUnmuted = () => {
+      // Reload feed so the unmuted post can appear again without a manual refresh
+      loadFeed()
+    }
+
+    window.addEventListener('post_muted', handlePostMuted as any)
+    window.addEventListener('post_unmuted', handlePostUnmuted as any)
+
+    return () => {
+      window.removeEventListener('post_muted', handlePostMuted as any)
+      window.removeEventListener('post_unmuted', handlePostUnmuted as any)
+    }
+  }, [])
+
   const handleLoadMore = () => {
     setPage((prev) => prev + 1)
   }

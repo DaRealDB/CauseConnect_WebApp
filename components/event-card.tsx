@@ -21,6 +21,14 @@ import { eventService } from "@/lib/api/services"
 import { toast } from "sonner"
 import { getImageUrl } from "@/lib/utils"
 import { useCurrency } from "@/contexts/CurrencyContext"
+import { useAuth } from "@/contexts/AuthContext"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 interface EventCardProps {
   event: {
@@ -39,17 +47,20 @@ interface EventCardProps {
     timeLeft: string
     urgency: "high" | "medium" | "low"
     isBookmarked?: boolean
+    isSupported?: boolean
   }
 }
 
 export function EventCard({ event }: EventCardProps) {
   const { formatAmountSimple } = useCurrency()
+  const { user } = useAuth()
   const [isSupported, setIsSupported] = useState(event.isSupported || false)
   const [isBookmarked, setIsBookmarked] = useState(event.isBookmarked || false)
   const [isPassed, setIsPassed] = useState(false)
   const [supportersCount, setSupportersCount] = useState(event.supporters)
   const [isBookmarking, setIsBookmarking] = useState(false)
   const [isSupporting, setIsSupporting] = useState(false)
+  const isOwner = user && event.organizationId && user.id === event.organizationId
 
   // Initialize state from props (DB state)
   useEffect(() => {
@@ -242,7 +253,7 @@ export function EventCard({ event }: EventCardProps) {
               }}
             >
               <Heart className={`w-4 h-4 ${isSupported ? "fill-current" : ""}`} />
-              {isSupported ? "Supported" : "Support"}
+              {isSupported ? "Participating" : "Participate"}
             </Button>
             <Button size="sm" variant="outline" className="flex items-center gap-2 bg-transparent" asChild>
               <Link href={`/event/${event.id}#comments`}>
@@ -268,9 +279,44 @@ export function EventCard({ event }: EventCardProps) {
             <Button size="sm" variant="ghost">
               <Award className="w-4 h-4" />
             </Button>
-            <Button size="sm" variant="ghost">
-              <MoreHorizontal className="w-4 h-4" />
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="ghost">
+                  <MoreHorizontal className="w-4 h-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {isOwner ? (
+                  <>
+                    <DropdownMenuItem asChild>
+                      <Link href={`/event/${event.id}`}>Edit Post</Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link href={`/event/${event.id}`}>View Participants</Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={async () => {
+                        try {
+                          await eventService.deleteEvent(event.id)
+                          toast.success("Event deleted")
+                        } catch (error: any) {
+                          toast.error(error.message || "Failed to delete event")
+                        }
+                      }}
+                    >
+                      Delete Post
+                    </DropdownMenuItem>
+                  </>
+                ) : (
+                  <>
+                    <DropdownMenuItem onClick={() => toast.info("Event reported. Thank you.")}>
+                      Report Post
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </CardContent>

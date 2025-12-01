@@ -97,6 +97,7 @@ export const exploreService = {
         limit: 100, // Get more to merge and sort
         excludeUserTags: params.excludeUserTags,
         filterUserId: params.userId,
+        excludeMutedForUserId: params.userId,
       }),
       getAllSquadsHelper(params.userId),
     ])
@@ -191,6 +192,7 @@ export const exploreService = {
       limit: params.limit,
       excludeUserTags: params.excludeUserTags,
       filterUserId: params.userId,
+      excludeMutedForUserId: params.userId,
     })
   },
 

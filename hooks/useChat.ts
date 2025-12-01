@@ -34,6 +34,36 @@ export interface ConversationWithParticipants extends Conversation {
   unreadCountForUser?: number
 }
 
+function dedupePrivateConversations(
+  conversations: ConversationWithParticipants[]
+): ConversationWithParticipants[] {
+  const privateMap = new Map<string, ConversationWithParticipants>()
+  const nonPrivate: ConversationWithParticipants[] = []
+
+  conversations.forEach((conv) => {
+    if (conv.type === 'private' && conv.participants && conv.participants.length === 2) {
+      const sorted = [...conv.participants].map((id) => id.toString()).sort()
+      const key = `${sorted[0]}_${sorted[1]}`
+
+      const existing = privateMap.get(key)
+      if (!existing) {
+        privateMap.set(key, conv)
+      } else {
+        const existingTime =
+          existing.updatedAt instanceof Date ? existing.updatedAt.getTime() : 0
+        const newTime = conv.updatedAt instanceof Date ? conv.updatedAt.getTime() : 0
+        if (newTime > existingTime) {
+          privateMap.set(key, conv)
+        }
+      }
+    } else {
+      nonPrivate.push(conv)
+    }
+  })
+
+  return [...nonPrivate, ...Array.from(privateMap.values())]
+}
+
 export function useChat() {
   const { user } = useAuth()
   const [conversations, setConversations] = useState<ConversationWithParticipants[]>([])
@@ -143,7 +173,7 @@ export function useChat() {
     getUserConversations(user.id.toString())
       .then(async (convs) => {
         const enriched = await Promise.all(convs.map(enrichConversation))
-        setConversations(enriched)
+        setConversations(dedupePrivateConversations(enriched))
         setIsLoading(false)
       })
       .catch((err) => {
@@ -163,7 +193,7 @@ export function useChat() {
     const unsubscribe = subscribeToConversations(user.id.toString(), async (convs) => {
       try {
         const enriched = await Promise.all(convs.map(enrichConversation))
-        setConversations(enriched)
+        setConversations(dedupePrivateConversations(enriched))
         
         // Dispatch event for badge notifications
         if (typeof window !== 'undefined') {

@@ -23,6 +23,26 @@ export const commentController = {
     }
   },
 
+  async getPostComments(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const { postId } = req.params
+      const comments = await commentService.getComments(postId, req.userId, 'post')
+      res.json(comments)
+    } catch (error: any) {
+      next(error)
+    }
+  },
+
+  async createPostComment(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const { postId } = req.params
+      const result = await commentService.createComment(postId, req.userId!, req.body, 'post')
+      res.status(201).json(result)
+    } catch (error: any) {
+      next(error)
+    }
+  },
+
   async likeComment(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const { id } = req.params

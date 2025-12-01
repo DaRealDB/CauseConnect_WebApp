@@ -1,5 +1,5 @@
 import prisma from '../config/database'
-// import { createError } from '../middleware/errorHandler' // Unused import
+import { createError } from '../middleware/errorHandler'
 import { createNotification } from '../utils/notifications'
 import { normalizeTagName } from './tag.service'
 
@@ -12,6 +12,7 @@ export const postService = {
     requireUserTags?: boolean
     filterUserId?: string // User ID to get tags from for filtering
     excludeUserTags?: boolean // For explore: exclude user's tags
+    excludeMutedForUserId?: string // Exclude posts muted by this user
   }) {
     const page = params.page || 1
     const limit = params.limit || 10
@@ -103,11 +104,28 @@ export const postService = {
       where.tags = tagFilter
       console.log(`[PostService] Tag filter applied to where clause`)
     }
-    
+
     // Force empty result if needed (strict filtering with no tags)
     if (forceEmptyResult) {
       where.id = { in: [] } // Force empty result
       console.log(`[PostService] Force empty result applied (no tags)`)
+    }
+
+    // Exclude posts the user has muted (server-side), if requested and not already forced empty
+    if (!forceEmptyResult && params.excludeMutedForUserId) {
+      const muted = await prisma.mutedPost.findMany({
+        where: { userId: params.excludeMutedForUserId },
+        select: { postId: true },
+      })
+
+      if (muted.length > 0) {
+        const mutedIds = muted.map((m: { postId: string }) => m.postId)
+        where.id = {
+          ...(where.id || {}),
+          notIn: mutedIds,
+        }
+        console.log(`[PostService] Excluding muted posts for user`, params.excludeMutedForUserId)
+      }
     }
 
     const [posts, total] = await Promise.all([
@@ -384,6 +402,113 @@ export const postService = {
     }
   },
 
+  async mutePost(postId: string, userId: string) {
+    const existing = await prisma.mutedPost.findFirst({
+      where: {
+        userId,
+        postId,
+      },
+    })
+
+    if (!existing) {
+      await prisma.mutedPost.create({
+        data: {
+          userId,
+          postId,
+        },
+      })
+    }
+  },
+
+  async unmutePost(postId: string, userId: string) {
+    const existing = await prisma.mutedPost.findFirst({
+      where: {
+        userId,
+        postId,
+      },
+    })
+
+    if (existing) {
+      await prisma.mutedPost.delete({
+        where: { id: existing.id },
+      })
+    }
+  },
+
+  async getMutedPosts(userId: string, page: number = 1, limit: number = 10) {
+    const skip = (page - 1) * limit
+
+    const [mutedPosts, total] = await Promise.all([
+      prisma.mutedPost.findMany({
+        where: { userId },
+        include: {
+          post: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  username: true,
+                  avatar: true,
+                  verified: true,
+                },
+              },
+              tags: true,
+              _count: {
+                select: {
+                  likes: true,
+                  comments: true,
+                  participants: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: { mutedAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.mutedPost.count({ where: { userId } }),
+    ])
+
+    const posts = mutedPosts
+      .map((mp) => mp.post)
+      .filter((post) => post !== null)
+      .map((post) => ({
+        id: parseInt(post!.id) || post!.id,
+        user: {
+          id: post!.user.id,
+          name: `${post!.user.firstName} ${post!.user.lastName}`,
+          username: post!.user.username,
+          avatar: post!.user.avatar,
+          verified: post!.user.verified,
+          following: false,
+        },
+        content: post!.content,
+        image: post!.image,
+        tags: (post!.tags || []).map((tag) => tag.name),
+        timestamp: post!.createdAt.toISOString(),
+        likes: post!._count.likes,
+        comments: post!._count.comments,
+        participants: post!._count.participants,
+        shares: 0,
+        liked: false,
+        bookmarked: false,
+        isParticipating: false,
+      }))
+
+    return {
+      data: posts,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    }
+  },
+
   async participateInPost(postId: string, userId: string) {
     // Check if user is the post creator
     const post = await prisma.post.findUnique({
@@ -494,6 +619,23 @@ export const postService = {
       },
     }
   },
+
+  async deletePost(postId: string, userId: string) {
+    const post = await prisma.post.findUnique({
+      where: { id: postId },
+      select: { userId: true },
+    })
+
+    if (!post) {
+      throw createError('Post not found', 404)
+    }
+
+    if (post.userId !== userId) {
+      throw createError('Unauthorized: Only post owner can delete', 403)
+    }
+
+    await prisma.post.delete({
+      where: { id: postId },
+    })
+  },
 }
-
-

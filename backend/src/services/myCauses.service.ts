@@ -7,7 +7,7 @@ export const myCausesService = {
    */
   async getUserCauses(userId: string) {
     try {
-      // Get all completed donations
+      // Get all completed donations for this user
       const donations = await prisma.donation.findMany({
         where: {
           userId,
@@ -36,12 +36,12 @@ export const myCausesService = {
               },
             },
           },
-          post: postId ? {
+          post: {
             select: {
               id: true,
               content: true,
               image: true,
-              raisedAmount: true,
+              // For now, posts do not have aggregated raisedAmount; default to 0
               user: {
                 select: {
                   id: true,
@@ -53,7 +53,7 @@ export const myCausesService = {
                 },
               },
             },
-          } : false,
+          },
           recipient: {
             select: {
               id: true,
@@ -62,7 +62,6 @@ export const myCausesService = {
               lastName: true,
               avatar: true,
               verified: true,
-              totalDonated: true,
             },
           },
         },
@@ -167,18 +166,22 @@ export const myCausesService = {
               title: post.content.substring(0, 100) + (post.content.length > 100 ? '...' : ''),
               description: post.content,
               image: post.image || undefined,
-              organization: post.user ? {
-                id: post.user.id,
-                username: post.user.username,
-                name: `${post.user.firstName} ${post.user.lastName}`.trim() || post.user.username,
-                avatar: post.user.avatar || undefined,
-                verified: post.user.verified || false,
-              } : undefined,
+              organization: post.user
+                ? {
+                    id: post.user.id,
+                    username: post.user.username,
+                    name:
+                      `${post.user.firstName} ${post.user.lastName}`.trim() ||
+                      post.user.username,
+                    avatar: post.user.avatar || undefined,
+                    verified: post.user.verified,
+                  }
+                : undefined,
               totalDonated: donation.amount,
               donationCount: 1,
               firstDonationDate: donation.createdAt,
               lastDonationDate: donation.createdAt,
-              raisedAmount: post.raisedAmount,
+              raisedAmount: 0,
             })
           }
         } else if (donation.recipientUserId && donation.recipient) {
@@ -210,9 +213,74 @@ export const myCausesService = {
               donationCount: 1,
               firstDonationDate: donation.createdAt,
               lastDonationDate: donation.createdAt,
-              raisedAmount: donation.recipient.totalDonated,
+              raisedAmount: 0,
             })
           }
+        }
+      })
+
+      // Also include events the user has supported (participated in) via SupportHistory,
+      // even if they have not donated yet.
+      const supports = await prisma.supportHistory.findMany({
+        where: { userId },
+        include: {
+          event: {
+            select: {
+              id: true,
+              title: true,
+              description: true,
+              image: true,
+              goalAmount: true,
+              raisedAmount: true,
+              location: true,
+              targetDate: true,
+              organization: {
+                select: {
+                  id: true,
+                  username: true,
+                  firstName: true,
+                  lastName: true,
+                  avatar: true,
+                  verified: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      })
+
+      supports.forEach((support) => {
+        if (!support.event) return
+
+        const causeId = `event-${support.eventId}`
+        const existing = causeMap.get(causeId)
+
+        if (!existing) {
+          causeMap.set(causeId, {
+            id: support.event.id,
+            type: 'event',
+            title: support.event.title,
+            description: support.event.description,
+            image: support.event.image || undefined,
+            organization: {
+              id: support.event.organization.id,
+              username: support.event.organization.username,
+              name:
+                `${support.event.organization.firstName} ${support.event.organization.lastName}`.trim() ||
+                support.event.organization.username,
+              avatar: support.event.organization.avatar || undefined,
+              verified: support.event.organization.verified,
+            },
+            totalDonated: 0,
+            donationCount: 0,
+            firstDonationDate: support.createdAt,
+            lastDonationDate: support.createdAt,
+            goalAmount: support.event.goalAmount,
+            raisedAmount: support.event.raisedAmount,
+            location: support.event.location || undefined,
+            targetDate: support.event.targetDate || undefined,
+          })
         }
       })
 

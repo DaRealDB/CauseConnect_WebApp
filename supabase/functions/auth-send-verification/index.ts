@@ -9,9 +9,51 @@ import { handleCors, addCorsHeaders } from '../_shared/cors.ts'
 import { handleError, AppError } from '../_shared/errors.ts'
 import { queryOne, query } from '../_shared/db.ts'
 
+const EMAIL_FROM = Deno.env.get('EMAIL_FROM') || 'CauseConnect <no-reply@example.com>'
+const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
+
 // Simple OTP generator
 function generateOTP(): string {
   return Math.floor(100000 + Math.random() * 900000).toString()
+}
+
+async function sendVerificationEmail(email: string, otp: string, type: string) {
+  if (!RESEND_API_KEY) {
+    console.warn('RESEND_API_KEY is not configured; skipping email send')
+    return
+  }
+
+  const subject = type === 'password_reset'
+    ? 'Reset your CauseConnect password'
+    : 'Verify your email for CauseConnect'
+
+  const text = `Your verification code is ${otp}. It expires in 30 minutes.`
+
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: EMAIL_FROM,
+        to: [email],
+        subject,
+        text,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('Failed to send verification email via Resend:', {
+        status: response.status,
+        body: errorText,
+      })
+    }
+  } catch (error) {
+    console.error('Error while sending verification email:', error)
+  }
 }
 
 serve(async (req: Request) => {
@@ -49,8 +91,10 @@ serve(async (req: Request) => {
       [email.toLowerCase(), otp, type, expiresAt]
     )
 
-    // TODO: Send email with OTP
-    // For now, we'll log it (in production, use email service)
+    // Send email with OTP via Resend (if configured)
+    await sendVerificationEmail(email.toLowerCase(), otp, type)
+
+    // Also log the OTP for debugging (do not rely on this in production)
     console.log(`[Verification] ${type} code for ${email}: ${otp}`)
     
     // In development, you might want to return the OTP for testing

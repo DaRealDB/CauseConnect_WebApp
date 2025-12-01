@@ -26,6 +26,7 @@ export const postController = {
         requireUserTags: requireUserTags && !!filterUserId,
         filterUserId: (requireUserTags || excludeUserTags) ? filterUserId : undefined,
         excludeUserTags: excludeUserTags && !!filterUserId,
+        excludeMutedForUserId: req.userId,
       })
 
       // Mark posts as liked/bookmarked/participating if user is authenticated
@@ -65,6 +66,37 @@ export const postController = {
         }
       }
 
+      res.json(result)
+    } catch (error: any) {
+      next(error)
+    }
+  },
+
+  async mutePost(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params
+      await postService.mutePost(id, req.userId!)
+      res.json({ message: 'Post muted' })
+    } catch (error: any) {
+      next(error)
+    }
+  },
+
+  async unmutePost(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params
+      await postService.unmutePost(id, req.userId!)
+      res.json({ message: 'Post unmuted' })
+    } catch (error: any) {
+      next(error)
+    }
+  },
+
+  async getMutedPosts(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const page = parseInt(req.query.page as string) || 1
+      const limit = parseInt(req.query.limit as string) || 10
+      const result = await postService.getMutedPosts(req.userId!, page, limit)
       res.json(result)
     } catch (error: any) {
       next(error)
@@ -168,6 +200,16 @@ export const postController = {
       const limit = parseInt(req.query.limit as string) || 20
       const result = await postService.getPostParticipants(id, page, limit)
       res.json(result)
+    } catch (error: any) {
+      next(error)
+    }
+  },
+
+  async deletePost(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params
+      await postService.deletePost(id, req.userId!)
+      res.json({ message: 'Post deleted successfully' })
     } catch (error: any) {
       next(error)
     }

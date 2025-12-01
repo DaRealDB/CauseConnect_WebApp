@@ -29,7 +29,7 @@ import {
   Bookmark,
   Tag,
   Trophy,
-  User,
+  User as UserIcon,
   Plus,
   FolderPlus,
   Clock,
@@ -58,12 +58,15 @@ export function FeedHeader({ searchQuery: externalSearchQuery, onSearchChange: e
   const [internalSearchQuery, setInternalSearchQuery] = useState("")
   const { user, logout } = useAuth()
   const router = useRouter()
+  const [mounted, setMounted] = useState(false)
 
   // Use external search query if provided, otherwise use internal state
   const searchQuery = externalSearchQuery !== undefined ? externalSearchQuery : internalSearchQuery
   const handleSearchChange = externalOnSearchChange || ((value: string) => setInternalSearchQuery(value))
 
   useEffect(() => {
+    setMounted(true)
+
     const fetchUnreadCount = async () => {
       try {
         const response = await notificationService.getUnreadCount()
@@ -112,10 +115,19 @@ export function FeedHeader({ searchQuery: externalSearchQuery, onSearchChange: e
     router.push("/login")
   }
 
-  const displayName = user?.name || `${user?.firstName || ""} ${user?.lastName || ""}`.trim() || user?.username || "User"
-  const displayUsername = user?.username ? `@${user.username}` : "@username"
-  const avatarSrc = getImageUrl(user?.avatar)
-  const initials = user?.firstName?.[0] || user?.username?.[0] || "U"
+  // To avoid hydration mismatches, use stable placeholders on the server and first client render,
+  // then switch to actual user-derived values only after the component has mounted.
+  const displayName = mounted
+    ? user?.name || `${user?.firstName || ""} ${user?.lastName || ""}`.trim() || user?.username || "User"
+    : "User"
+
+  const displayUsername = mounted && user?.username ? `@${user.username}` : "@username"
+
+  const avatarSrc = mounted && user?.avatar ? getImageUrl(user.avatar) : undefined
+
+  const initials = mounted
+    ? user?.firstName?.[0] || user?.username?.[0] || "U"
+    : "U"
 
   return (
     <header className="sticky top-0 z-50 bg-card/80 backdrop-blur-sm border-b border-border">
@@ -167,7 +179,10 @@ export function FeedHeader({ searchQuery: externalSearchQuery, onSearchChange: e
                             <Avatar className="w-10 h-10">
                               <AvatarImage src={getImageUrl(user.avatar)} />
                               <AvatarFallback>
-                                {user.name?.split(" ").map((n) => n[0]).join("") || user.username?.[0] || "U"}
+                                {user.name
+                                  ?.split(" ")
+                                  .map((n: string) => n[0])
+                                  .join("") || user.username?.[0] || "U"}
                               </AvatarFallback>
                             </Avatar>
                             <div className="flex-1 min-w-0">
@@ -347,6 +362,14 @@ export function FeedHeader({ searchQuery: externalSearchQuery, onSearchChange: e
                   </Link>
                 </DropdownMenuItem>
 
+                {/* Muted Posts */}
+                <DropdownMenuItem asChild>
+                  <Link href="/muted-posts" className="flex items-center gap-2">
+                    <History className="w-4 h-4" />
+                    Muted Posts
+                  </Link>
+                </DropdownMenuItem>
+
                 {/* Discover */}
                 <DropdownMenuItem asChild>
                   <Link href="/discover" className="flex items-center gap-2">
@@ -364,7 +387,7 @@ export function FeedHeader({ searchQuery: externalSearchQuery, onSearchChange: e
                   </DropdownMenuLabel>
                   <DropdownMenuItem asChild>
                     <Link href={user?.username ? `/profile/${user.username}` : "/profile"} className="flex items-center gap-2">
-                      <User className="w-4 h-4" />
+                      <UserIcon className="w-4 h-4" />
                       View Profile
                     </Link>
                   </DropdownMenuItem>
@@ -432,6 +455,9 @@ export function FeedHeader({ searchQuery: externalSearchQuery, onSearchChange: e
                 </Button>
                 <Button variant="ghost" className="justify-start" asChild>
                   <Link href="/my-causes">My Causes</Link>
+                </Button>
+                <Button variant="ghost" className="justify-start" asChild>
+                  <Link href="/muted-posts">Muted Posts</Link>
                 </Button>
                 <Button variant="ghost" className="justify-start" asChild>
                   <Link href="/notifications">

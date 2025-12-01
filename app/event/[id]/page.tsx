@@ -229,7 +229,7 @@ export default function EventDetailPage() {
                   variant={isSupported ? "default" : "outline"}
                 >
                   <Heart className={`w-5 h-5 ${isSupported ? "fill-current" : ""}`} />
-                  {isSupported ? "Supported" : "Support This Cause"}
+                  {isSupported ? "Participating" : "Participate"}
                 </Button>
                 <Button size="lg" variant="outline" className="flex items-center gap-2 bg-transparent" asChild>
                   <Link href={`/donate/${event.id}`}>
