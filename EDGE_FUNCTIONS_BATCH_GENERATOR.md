@@ -179,3 +179,5 @@ chmod +x supabase/functions/generate-template.sh
 **Note:** After generating templates, you'll need to implement the actual logic in each function based on the Express backend service files.
 
 
+
+

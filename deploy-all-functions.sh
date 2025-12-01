@@ -3,8 +3,6 @@
 # Complete Edge Functions Deployment Script
 # Deploys all 91 Edge Functions to Supabase
 
-set -e  # Exit on error
-
 echo "🚀 Starting deployment of all Edge Functions..."
 echo ""
 
@@ -157,13 +155,11 @@ for func in "${FUNCTIONS[@]}"; do
   fi
   
   # Deploy function
-  if supabase functions deploy "$func" --no-verify-jwt > /dev/null 2>&1; then
+  if supabase functions deploy "$func" --no-verify-jwt 2>&1 | grep -q "Deployed Functions"; then
     echo -e "${GREEN}✅ SUCCESS${NC}"
     ((SUCCESS++))
   else
     echo -e "${RED}❌ FAILED${NC}"
-    echo "   Trying again with verbose output..."
-    supabase functions deploy "$func" --no-verify-jwt
     ((FAILED++))
   fi
   

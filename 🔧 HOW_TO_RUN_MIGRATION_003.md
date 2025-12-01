@@ -69,3 +69,5 @@ Then copy the entire output and paste into Supabase SQL Editor.
 
 **Ready? Create a new query and paste migration 003!** 🚀
 
+
+

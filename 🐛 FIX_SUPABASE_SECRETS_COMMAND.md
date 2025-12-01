@@ -70,3 +70,5 @@ supabase secrets set SERVICE_ROLE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJp
 
 **Status:** Use `SERVICE_ROLE_KEY` instead of `SUPABASE_SERVICE_ROLE_KEY`! 🚀
 
+
+

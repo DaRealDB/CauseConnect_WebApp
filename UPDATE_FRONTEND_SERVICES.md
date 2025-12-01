@@ -285,3 +285,5 @@ export const eventService = {
 **After updating services, your app will automatically use Supabase Edge Functions when available!**
 
 
+
+

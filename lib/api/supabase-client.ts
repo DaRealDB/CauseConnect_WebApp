@@ -237,3 +237,5 @@ class SupabaseEdgeFunctionsClient {
 export const supabaseEdgeFunctions = new SupabaseEdgeFunctionsClient()
 
 
+
+

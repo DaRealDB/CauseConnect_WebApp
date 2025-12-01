@@ -280,3 +280,5 @@ This document provides a complete overview of the Supabase migration for CauseCo
 **Questions?** Refer to the detailed guides listed above. Everything you need is documented!
 
 
+
+

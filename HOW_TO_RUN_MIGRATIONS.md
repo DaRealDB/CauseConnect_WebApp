@@ -198,3 +198,5 @@ Once migrations are complete:
 **Need help? Check `SUPABASE_MIGRATION_COMPLETE_GUIDE.md` for full setup instructions!**
 
 
+
+

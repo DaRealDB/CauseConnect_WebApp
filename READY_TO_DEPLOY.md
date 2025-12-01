@@ -294,3 +294,5 @@ All documentation is in:
 **You're ready to deploy! Follow the steps above and your core app will be live on Supabase. 🚀**
 
 
+
+

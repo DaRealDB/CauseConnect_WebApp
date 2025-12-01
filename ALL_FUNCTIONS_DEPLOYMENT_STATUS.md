@@ -126,3 +126,5 @@ After running `./deploy-all-functions.sh`:
 
 **All 57 functions are ready to deploy! Run the script and you're done!** 🚀
 
+
+

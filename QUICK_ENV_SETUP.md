@@ -109,3 +109,5 @@ console.log('Supabase URL:', process.env.NEXT_PUBLIC_SUPABASE_URL)
 **Need more details?** See `SETUP_ENV_LOCAL.md` for complete guide.
 
 
+
+
