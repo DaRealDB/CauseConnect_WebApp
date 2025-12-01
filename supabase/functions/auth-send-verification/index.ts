@@ -44,7 +44,7 @@ serve(async (req: Request) => {
     // Note: In production, you should hash the OTP. For now, storing plain text for simplicity.
     // You'll need to implement email sending service (SendGrid, Resend, etc.)
     await query(
-      `INSERT INTO verifications (email, code, type, "expiresAt", "createdAt")
+      `INSERT INTO verifications (email, "otpHash", type, "expiresAt", "createdAt")
        VALUES ($1, $2, $3, $4, NOW())`,
       [email.toLowerCase(), otp, type, expiresAt]
     )

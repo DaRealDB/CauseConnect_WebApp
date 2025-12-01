@@ -59,7 +59,7 @@ serve(async (req: Request) => {
     if (otp) {
       const verification = await queryOne(
         `SELECT id, verified FROM verifications 
-         WHERE email = $1 AND code = $2 AND type = 'email_verification' AND expires_at > NOW()`,
+         WHERE email = $1 AND "otpHash" = $2 AND type = 'email_verification' AND "expiresAt" > NOW()`,
         [email.toLowerCase(), otp]
       )
 
@@ -70,8 +70,8 @@ serve(async (req: Request) => {
       // Check if email was previously verified
       const verification = await queryOne(
         `SELECT id FROM verifications 
-         WHERE email = $1 AND type = 'email_verification' AND verified = true AND expires_at > NOW()
-         ORDER BY created_at DESC LIMIT 1`,
+         WHERE email = $1 AND type = 'email_verification' AND verified = true AND "expiresAt" > NOW()
+         ORDER BY "createdAt" DESC LIMIT 1`,
         [email.toLowerCase()]
       )
 

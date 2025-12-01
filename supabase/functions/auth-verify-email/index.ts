@@ -27,7 +27,7 @@ serve(async (req: Request) => {
 
     // Find verification record
     const verification = await queryOne(
-      `SELECT id, code, "expiresAt", verified
+      `SELECT id, "otpHash" as code, "expiresAt", verified
        FROM verifications
        WHERE email = $1 AND type = 'email_verification'
        ORDER BY "createdAt" DESC
