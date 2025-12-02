@@ -21,7 +21,6 @@ import {
   Heart,
   ThumbsUp,
   Laugh,
-  Surprise,
   Frown,
 } from "lucide-react"
 import { formatTimestamp, getImageUrl } from "@/lib/utils"
@@ -42,7 +41,7 @@ const REACTION_EMOJIS = [
   { emoji: '❤️', label: 'Love', icon: Heart },
   { emoji: '👍', label: 'Like', icon: ThumbsUp },
   { emoji: '😂', label: 'Laugh', icon: Laugh },
-  { emoji: '😮', label: 'Surprised', icon: Surprise },
+  { emoji: '😮', label: 'Surprised' },
   { emoji: '😢', label: 'Sad', icon: Frown },
 ]
 
