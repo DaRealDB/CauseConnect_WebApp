@@ -20,6 +20,23 @@ import type { Event, Post } from "@/lib/api/types"
 import { toast } from "sonner"
 import { useAuth } from "@/contexts/AuthContext"
 
+// Canonical tag definitions matching onboarding/settings
+const AVAILABLE_TAGS = [
+  { id: "education", label: "Education" },
+  { id: "environment", label: "Environment" },
+  { id: "health", label: "Health & Medicine" },
+  { id: "poverty", label: "Poverty & Hunger" },
+  { id: "animals", label: "Animal Welfare" },
+  { id: "human-rights", label: "Human Rights" },
+  { id: "disaster-relief", label: "Disaster Relief" },
+  { id: "arts-culture", label: "Arts & Culture" },
+  { id: "technology", label: "Technology Access" },
+  { id: "elderly", label: "Elderly Care" },
+  { id: "youth", label: "Youth Development" },
+  { id: "mental-health", label: "Mental Health" },
+  { id: "community", label: "Community" },
+]
+
 export default function FeedPage() {
   const { user, isAuthenticated } = useAuth()
   const [activeFilter, setActiveFilter] = useState<"all" | "events" | "updates">("all")
@@ -307,11 +324,36 @@ export default function FeedPage() {
     setPosts([])
   }
 
-  // Combine all unique tags for filter dropdown
+  // Combine all unique tags for filter dropdown (case-insensitive, canonical labels)
   const allFilterTags = useMemo(() => {
-    const tags = new Set<string>(availableTags)
-    userInterestTags.forEach((tag) => tags.add(tag))
-    return Array.from(tags).sort()
+    type TagOption = { id: string; label: string }
+
+    const byIdOrLabel = (raw: string): TagOption => {
+      const lower = raw.toLowerCase()
+      const byId = AVAILABLE_TAGS.find((t) => t.id.toLowerCase() === lower)
+      if (byId) return { id: byId.id, label: byId.label }
+
+      const byLabel = AVAILABLE_TAGS.find((t) => t.label.toLowerCase() === lower)
+      if (byLabel) return { id: byLabel.id, label: byLabel.label }
+
+      // Fallback for unknown tags: keep original text
+      return { id: raw, label: raw }
+    }
+
+    const map = new Map<string, TagOption>() // canonicalId -> option
+
+    const addTag = (raw: string | undefined | null) => {
+      if (!raw) return
+      const option = byIdOrLabel(raw)
+      if (!map.has(option.id)) {
+        map.set(option.id, option)
+      }
+    }
+
+    availableTags.forEach(addTag)
+    userInterestTags.forEach(addTag)
+
+    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label))
   }, [availableTags, userInterestTags])
 
   return (
@@ -355,17 +397,17 @@ export default function FeedPage() {
                       <div className="max-h-64 overflow-y-auto space-y-2">
                         {allFilterTags.length > 0 ? (
                           allFilterTags.map((tag) => (
-                            <div key={tag} className="flex items-center space-x-2">
+                            <div key={tag.id} className="flex items-center space-x-2">
                               <Checkbox
-                                id={tag}
-                                checked={selectedTags.includes(tag)}
-                                onCheckedChange={() => handleTagToggle(tag)}
+                                id={tag.id}
+                                checked={selectedTags.includes(tag.id)}
+                                onCheckedChange={() => handleTagToggle(tag.id)}
                               />
                               <label
-                                htmlFor={tag}
+                                htmlFor={tag.id}
                                 className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
                               >
-                                {tag}
+                                {tag.label}
                               </label>
                             </div>
                           ))

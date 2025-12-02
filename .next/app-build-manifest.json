@@ -21,20 +21,20 @@
       "static/chunks/main-app.js",
       "static/chunks/app/feed/page.js"
     ],
-    "/forgot-password/page": [
+    "/chat/loading": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/forgot-password/page.js"
+      "static/chunks/app/chat/loading.js"
     ],
-    "/forgot-password/verify/page": [
+    "/chat/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/forgot-password/verify/page.js"
+      "static/chunks/app/chat/page.js"
     ],
-    "/forgot-password/reset/page": [
+    "/settings/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/forgot-password/reset/page.js"
+      "static/chunks/app/settings/page.js"
     ]
   }
 }

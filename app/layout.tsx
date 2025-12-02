@@ -22,6 +22,11 @@ export const metadata: Metadata = {
   description:
     "A charity-driven social platform where users can discover, support, and engage with causes that make a difference.",
   generator: "v0.app",
+  icons: {
+    icon: "/causeconnect-icon.svg",
+    shortcut: "/causeconnect-icon.svg",
+    apple: "/causeconnect-icon.svg",
+  },
 }
 
 export default function RootLayout({
