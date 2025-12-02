@@ -13,8 +13,6 @@ export const chatController = {
     try {
       // Conversations are stored in Firebase, but we can return user's profile
       // for the frontend to fetch Firebase conversations
-      const userId = req.userId!
-      
       // Return empty array - frontend will fetch from Firebase
       // This endpoint exists for consistency with API structure
       res.json({
@@ -33,7 +31,6 @@ export const chatController = {
   async getMessages(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const { conversationId } = req.params
-      const userId = req.userId!
 
       if (!conversationId) {
         throw createError('Conversation ID is required', 400)
