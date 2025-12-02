@@ -24,7 +24,9 @@ const app: Express = express()
 
 // Middleware
 app.use(cors({
-  origin: config.cors.origins,
+  // Allow all origins and reflect the request origin in the CORS response.
+  // This avoids configuration mismatches between backend and frontend domains.
+  origin: true,
   credentials: true,
 }))
 
