@@ -9,7 +9,7 @@ import { userService } from '../services/user.service'
  * This endpoint just provides user data for chat participants
  */
 export const chatController = {
-  async getConversations(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  async getConversations(_req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       // Conversations are stored in Firebase, but we can return user's profile
       // for the frontend to fetch Firebase conversations
