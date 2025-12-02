@@ -130,9 +130,9 @@ export const authService = {
    */
   async register(data: RegisterRequest): Promise<RegisterResponse> {
     const response = await routeRequest<RegisterResponse>(
-      'auth-register',
+      null,
       '/auth/register',
-      { method: 'POST', data }
+      { method: 'POST', data, useExpress: true }
     )
     // Store token
     apiClient.setToken(response.token)
