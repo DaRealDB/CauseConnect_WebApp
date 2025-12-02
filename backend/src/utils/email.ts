@@ -32,14 +32,14 @@ export const emailService = {
       // Prefer Resend HTTP API when configured
       if (resend && emailFrom) {
         console.log('[Email] Using Resend to send email...')
-        const response = await resend.emails.send({
+        await resend.emails.send({
           from: emailFrom,
           to: [options.to],
           subject: options.subject,
           html: options.html,
           text: options.text || options.html.replace(/<[^>]*>/g, ''),
         })
-        console.log(`[Email] ✅ Resend email sent successfully to ${options.to}: ${response.id}`)
+        console.log(`[Email] ✅ Resend email sent successfully to ${options.to}`)
         return
       }
 
