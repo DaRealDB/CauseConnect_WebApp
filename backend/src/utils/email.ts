@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer'
+import { Resend } from 'resend'
 
 // Create reusable transporter
 const transporter = nodemailer.createTransport({
@@ -10,6 +11,10 @@ const transporter = nodemailer.createTransport({
     pass: process.env.SMTP_PASS,
   },
 })
+
+const resendApiKey = process.env.RESEND_API_KEY
+const resend = resendApiKey ? new Resend(resendApiKey) : null
+const emailFrom = process.env.EMAIL_FROM || process.env.SMTP_USER || ''
 
 export interface SendEmailOptions {
   to: string
@@ -24,6 +29,20 @@ export const emailService = {
    */
   async sendEmail(options: SendEmailOptions): Promise<void> {
     try {
+      // Prefer Resend HTTP API when configured
+      if (resend && emailFrom) {
+        console.log('[Email] Using Resend to send email...')
+        const response = await resend.emails.send({
+          from: emailFrom,
+          to: [options.to],
+          subject: options.subject,
+          html: options.html,
+          text: options.text || options.html.replace(/<[^>]*>/g, ''),
+        })
+        console.log(`[Email] ✅ Resend email sent successfully to ${options.to}: ${response.id}`)
+        return
+      }
+
       // Verify transporter configuration
       if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
         const errorMsg = '[Email] SMTP credentials not configured. Email sending disabled. Set SMTP_USER and SMTP_PASS in .env to enable email sending.'
